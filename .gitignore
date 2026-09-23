@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+runs/
+reports/**/report.json
+reports/prompt_selection/
+*.log

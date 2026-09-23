@@ -1,0 +1,17 @@
+{
+  "state": "Checkout is broken. We are losing sales. Please fix it today.",
+  "questions": [
+    {"id": "urgent", "type": "binary", "instruction": "Does this require immediate attention?", "threshold": 0.5},
+    {"id": "team", "type": "multiclass", "instruction": "Which team should handle the underlying issue?",
+     "candidates": [
+       {"id": "technical", "description": "Technical support: software malfunctions and integration failures"},
+       {"id": "billing", "description": "Billing: invoices, incorrect charges, and payment disputes"},
+       {"id": "sales", "description": "Sales: buying a product or discussing an upgrade"}]},
+    {"id": "tags", "type": "multilabel", "instruction": "Which properties are supported by the message?",
+     "candidates": [
+       {"id": "revenue_loss", "description": "The customer reports losing revenue"},
+       {"id": "refund", "description": "The customer requests a refund"},
+       {"id": "blocked", "description": "Customers are unable to complete checkout"}],
+     "threshold": 0.5}
+  ]
+}
