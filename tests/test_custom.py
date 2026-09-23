@@ -13,7 +13,7 @@ from peft import LoraConfig, get_peft_model
 from transformers import Qwen3Config, Qwen3Model
 
 from personal_jev.classify import classify, classify_many
-from personal_jev.custom import CustomScorer, candidate_texts, format_config, save_checkpoint, state_text
+from personal_jev.custom import CustomScorer, candidate_texts, format_config, save_checkpoint, state_span, state_text, tokenize
 from personal_jev.data import load
 from personal_jev.model import MODEL_ID, MODEL_REVISION, InputTooLong
 from personal_jev.schemas import parse_question
@@ -39,11 +39,11 @@ def randomize(model, seed=1, scale=0.3):
             p.copy_(torch.randn(p.shape, generator=g) * scale)
 
 
-def tiny_scorer(lora=False, **kw):
+def tiny_scorer(lora=False, arch=None, **kw):
     bb = tiny_backbone()
     if lora:
         bb = get_peft_model(bb, LoraConfig(r=4, lora_alpha=8, target_modules=["q_proj", "k_proj", "v_proj", "o_proj"]))
-    sc = CustomScorer(device="cpu", backbone=bb, arch=TINY_ARCH, **kw)
+    sc = CustomScorer(device="cpu", backbone=bb, arch=TINY_ARCH | (arch or {}), **kw)
     randomize(sc.model)
     return sc
 
@@ -102,6 +102,19 @@ def test_state_matters_and_eval_mode_is_deterministic(tiny):
     b = scores_by_id(classify(tiny, REQ | {"state": "Please send me the invoice for last month."}))
     assert max(abs(a[k] - b[k]) for k in a) > 1e-3
     assert not tiny.model.training and scores_by_id(classify(tiny, REQ)) == a  # dropout off at inference
+
+
+def test_shape_buckets_pad_but_do_not_change_scores(tiny, monkeypatch):
+    """Bucketing runs on MPS only; force it on CPU: shapes are padded (dummy rows, tokens, candidates), scores are not."""
+    from personal_jev.custom import SharedStateClassifier, bucket
+    long = REQ | {"state": REQ["state"] + " The invoice from March lists the wrong VAT number." * 7}
+    exact, s0 = classify_many(tiny, [REQ, long])
+    monkeypatch.setattr(SharedStateClassifier, "_buckets", lambda self: True)
+    padded, s1 = classify_many(tiny, [REQ, long])
+    assert s1["padded_tokens"] > s0["padded_tokens"] and s1["memory_rows"] == bucket(2)
+    for a, b in zip(exact, padded):
+        close(scores_by_id({"questions": a}), scores_by_id({"questions": b}))
+    assert [bucket(x) for x in (1, 5, 9, 17, 33, 1500)] == [1, 5, 10, 20, 40, 1536]
 
 
 def test_state_encoded_once_and_memory_not_replicated_per_candidate(tiny):
@@ -179,7 +192,9 @@ def test_gradients_reach_every_new_module_and_lora():
     loss = grouped_loss(forward_items(m, items, states, 4096), items)
     loss.backward()
     named = dict(m.named_parameters())
-    missing = [n for n, p in named.items() if p.requires_grad and (p.grad is None or not torch.isfinite(p.grad).all() or not p.grad.any())]
+    shift_invariant = {"choice_head.2.bias"}  # softmax CE ignores a bias shared by all candidates: its gradient is exactly 0
+    missing = [n for n, p in named.items() if p.requires_grad and n not in shift_invariant
+               and (p.grad is None or not torch.isfinite(p.grad).all() or not p.grad.any())]
     assert not missing, missing
     assert any("lora_A" in n for n in named) and all(named[n].grad is None for n in named if n.startswith("backbone.") and "lora_" not in n)
 
@@ -231,6 +246,51 @@ def test_complete_checkpoint_roundtrip_with_lora(tmp_path):
         CustomScorer(tmp_path / "ck", device="cpu", backbone=tiny_backbone())
 
 
+# --- similarity variant (opt-in) ------------------------------------------------------------------------------------
+
+def test_content_masks_cover_the_question_for_binary_and_the_description_otherwise(tiny):
+    for q in map(parse_question, REQ["questions"]):
+        for (text, span), c in zip(candidate_texts(q, spans=True), q.candidates or [None]):
+            ids, [mask] = tokenize(tiny.tokenizer, [text], [span])
+            got = tiny.tokenizer.decode([t for t, m in zip(ids[0], mask) if m]).strip()
+            assert got == (q.instruction if q.type == "binary" else c.description)
+    ids, [mask] = tokenize(tiny.tokenizer, [state_text(REQ["state"])], [state_span(state_text(REQ["state"]))])
+    assert tiny.tokenizer.decode([t for t, m in zip(ids[0], mask) if m]).strip() == REQ["state"]
+
+
+def test_untrained_similarity_variant_is_exactly_maxsim():
+    """Heads start at 0, so multiclass scores = sim_init * MaxSim (recomputed here one sequence at a time) and
+    binary / multilabel scores = 0 (their similarity weight starts at 0)."""
+    sc = CustomScorer(device="cpu", backbone=tiny_backbone(), arch=TINY_ARCH | {"similarity": True, "sim_init": 7.0})
+    got = scores_by_id(classify(sc, REQ))
+
+    def feats(text, span):
+        ids, [mask] = tokenize(sc.tokenizer, [text], [span])
+        with torch.no_grad():
+            h = sc.model.backbone(input_ids=torch.tensor(ids)).last_hidden_state[0]
+        return torch.nn.functional.normalize(h, dim=-1)[torch.tensor(mask)]
+
+    state = feats(state_text(REQ["state"]), state_span(state_text(REQ["state"])))
+    for q in map(parse_question, REQ["questions"]):
+        for (text, span), c in zip(candidate_texts(q, spans=True), q.candidates or [None]):
+            maxsim = (feats(text, span) @ state.T).max(1).values.mean().item()
+            key = q.id if q.type == "binary" else (q.id, c.id)
+            assert got[key] == pytest.approx(7.0 * maxsim if q.type == "multiclass" else 0.0, abs=1e-5)
+
+
+def test_similarity_variant_batching_and_candidate_independence():
+    sc = tiny_scorer(arch={"similarity": True})
+    long = REQ | {"state": REQ["state"] + " The refund for order 88 is still missing." * 20}
+    batched, _ = classify_many(sc, [REQ, long])
+    for req, res in zip([REQ, long], batched):
+        for q, r in zip(req["questions"], res):
+            close(scores_by_id(classify(sc, {"state": req["state"], "questions": [q]})), scores_by_id({"questions": [r]}))
+    r = json.loads(json.dumps(REQ))
+    r["questions"][1]["candidates"].reverse()
+    r["questions"].insert(0, {"id": "noise", "type": "binary", "instruction": "Is the moon made of cheese?"})
+    close(scores_by_id(classify(sc, REQ)), scores_by_id(classify(sc, r)))
+
+
 def test_full_finetune_checkpoint_roundtrip(tmp_path):
     sc = tiny_scorer()
     with torch.no_grad():
@@ -254,7 +314,7 @@ def test_real_backbone_batched_equals_single(real):
     randomize(real.model, scale=0.05)
     long = REQ | {"state": "Order 4417 was charged twice and the refund never arrived. " * 40}
     batched, stats = classify_many(real, [REQ, long])
-    assert stats["padded_tokens"] > stats["input_tokens"] and real.meta["params"]["new_modules"] == 2_171_394
+    assert stats["padded_tokens"] > stats["input_tokens"] and real.meta["params"]["new_modules"] == 2_172_418
     for req, res in zip([REQ, long], batched):
         single = scores_by_id(classify(real, req))
         close(single, scores_by_id({"questions": res}), 1e-3)
