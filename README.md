@@ -2,7 +2,7 @@
 
 Fast, instruction-conditioned **binary / multiclass / multilabel** decisions from open Qwen3 models: send a text (the
 *state*), natural-language questions and optional candidate labels with descriptions; get typed decisions and
-probabilities from one batched forward pass, with no text generation.
+probabilities from batched forward passes, with no text generation.
 
 It copies the *interface* of TypeSafe's [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), not its
 undisclosed model, and measures every step against Jev on the same questions.
@@ -16,7 +16,7 @@ the Markdown files in [docs/](docs/).
 | model | eval2 (target task, 1,991 q) | dev benchmark (3,471 q) |
 |---|---|---|
 | Jev (`typesafe/jev`, API) | **97.2** | 82.7 |
-| **Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, round-2 data** (`tree_4b_instruct_r2x64`) | **92.7** | **82.7** |
+| **Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, round-2b data** (`tree_4b_instruct_r2x64`) | **92.7** | **82.7** |
 | Qwen3-Reranker-4B + LoRA, shared-prefix tree, round-1 data (`tree_4b`) | 85.1 | 81.6 |
 | Qwen3-Reranker-4B + LoRA, stock pairs (`lora_4b`) | 86.5 | 80.3 |
 | Qwen3-Reranker-0.6B + LoRA, stock pairs (`lora_pilot`) | 68.8 | 73.5 |

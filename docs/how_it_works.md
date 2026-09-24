@@ -1,6 +1,6 @@
 # How it works
 
-SelfJev answers typed questions about a text (the *state*) in one batched forward pass, with no text generation:
+SelfJev answers typed questions about a text (the *state*) from batched forward passes, with no text generation:
 
 - **binary**: does the text support "yes"? → `p_yes`, a decision;
 - **multiclass**: which one candidate fits? → a distribution over the candidates, the argmax;
