@@ -227,6 +227,52 @@ McNemar tests.
 - **Throughput:** mean ≈ 66K, 15K and 9.5K tokens/s for 0.6B, 4B and 8B.
 - **LoRA overhead:** 15–50% with the adapter unmerged; merging it into the weights removes it.
 
+## Shared-prefix tree scorer (best model so far)
+
+The text is read **once**, and each question and candidate still reads it through **all** layers. One forward
+pass runs over a token tree (text → questions → candidates) with a tree attention mask, and yes/no logits are read
+at each leaf. Each leaf scores exactly like the standalone `text + question + candidate` sequence; the tests check
+this to 1.7e-5 on the real model. Full write-up: [docs/tree_model.md](docs/tree_model.md). Test split, 3,471
+questions; speed on one A10G, bf16, both with LoRA:
+
+| | question accuracy % | binary AUROC | multiclass accuracy % | 16 questions × 3 candidates, 8K-token text |
+|---|---|---|---|---|
+| stock Qwen3-Reranker-4B + LoRA | 80.3 | 0.945 | 82.3 | 90,449 ms |
+| **tree Qwen3-Reranker-4B + LoRA** | **81.6** | **0.953** | **83.9** | **2,798 ms** |
+| Jev | 82.7 | 0.981 | 84.6 | not measured |
+
+- **Accuracy.** It beats the stock 4B trained on the same data (p = 0.016). The gap to Jev is not significant
+  (p = 0.08).
+- **Speed.** It is 32–37× faster with 16 × 3 questions on 8K–16K-token texts, and the same speed for a single
+  question.
+- **Base model.** A general instruct model (Qwen3-4B-Instruct-2507) was better untrained but ended at 80.4% after
+  LoRA, so the reranker is the better base.
+- **Usage.** `pjev classify request.json --tree --model Qwen/Qwen3-Reranker-4B --revision 22e683669bc0f0bd69640a1354a6d0aebcfeede5 --adapter runs/tree_4b/adapter --dtype bfloat16`.
+
+### Data and base-model curves (4B): the stock recipe saturates at 80–81%
+
+Ten more Qwen3-Reranker-4B LoRA runs with the `lora_4b` recipe, one A10G each, to see what moves the 80.3%
+(tables and paired tests: [reports/curve/summary.md](reports/curve/summary.md), configs in `configs/curve/`,
+`scripts/run_curve.sh`):
+
+| lever | runs | test question accuracy % |
+|---|---|---|
+| more of the same data (nested 25% / 50% / 100% of the 10,112 questions) | 1 epoch | 77.0 / 78.9 / 80.3 |
+| | 2 epochs | 79.1 / 79.1 / 79.8 |
+| a new task type: BoolQ training questions added (+0 / +100 / +300 / +1,000 / +3,000) | BoolQ test | 83.3 / 84.3 / 83.3 / 84.3 / 86.7 (Jev 90.7) |
+| | overall | 80.3 / 80.0 / 80.9 / 80.9 / 80.9 |
+| base model: Qwen3-4B-Instruct-2507, same pair format | zero-shot | 71.3 (binary 84.2, AUROC 0.911) vs 62.8 for the reranker |
+| | + LoRA | 80.6 vs 80.3 (p = 0.68) |
+
+- Each doubling of the data buys about 1.5 points, and 2 epochs of 25% equal 1 epoch of 50%: matching Jev with more
+  of the same data would take several times the current set, if the slope held.
+- A new task type needs thousands of labeled examples for a few points, and the overall score does not move
+  significantly (p ≥ 0.09 for every BoolQ run).
+- The instruct base is much better untrained, above all on yes/no, but identical after LoRA. Its tree-format
+  counterparts are in `reports/tree_zeroshot_instruct_4b` and `reports/tree_4b_instruct`.
+- Data volume, epochs and base model all land at 80–81%. The tree scorer's 81.6% is the only lever so far that
+  moved the test score up.
+
 ## Custom shared-state model
 
 A second model follows the v1 spec. It encodes the text **once** with the same Qwen backbone, encodes each
@@ -329,7 +375,7 @@ rather than labeled negative.
 | `data/dev.jsonl` | development fixtures, used in tests and for quick checks | 14 states / 28 questions | written in this session by Claude Code; pending human review |
 | `data/eval.jsonl` | **evaluation set** over 7 families; hard cases tagged | 155 states / 398 questions: validation 118, calibration 109, test 171 | written by 7 Claude Opus agents from [data/eval/BRIEF.md](data/eval/BRIEF.md), with no access to training data; a separate blind Opus re-labelling agreed on 398/398 ([review](data/eval/review/REVIEW.md)); **not human-reviewed** |
 | `data/hf.jsonl` | public human-labeled datasets converted to our schema | 16,800: train 12,000; validation, calibration 750 each; test 1,500 in-distribution + 1,800 held-out | 11 pinned HF revisions, licenses per row ([scripts/build_hf.py](scripts/build_hf.py)); label descriptions written by Claude Sonnet ([data/hf/label_descriptions.json](data/hf/label_descriptions.json)) |
-| `data/synthetic.jsonl` | hard, long, trap-heavy **training** data in 6 families | 923 states / 2,411 questions: train 2,086, validation 110, calibration 122, test 93 | written by 12 Claude Sonnet agents from [data/synthetic/BRIEF.md](data/synthetic/BRIEF.md); labels are LLM-intended, not ground truth; generation stopped at about 75% of the plan when a usage limit hit; an Opus label review dropped 37 wrong or ambiguous questions ([review](data/synthetic/review/REVIEW.md)) |
+| `data/synthetic.jsonl` | hard, long, trap-heavy **training** data in 6 families | 923 states / 2,405 questions: train 2,080, validation 110, calibration 122, test 93 | written by 12 Claude Sonnet agents from [data/synthetic/BRIEF.md](data/synthetic/BRIEF.md); labels are LLM-intended, not ground truth; generation stopped at about 75% of the plan when a usage limit hit; an Opus label review dropped 43 wrong or ambiguous questions ([review](data/synthetic/review/REVIEW.md)) |
 
 - **Splits** are assigned by hashing `source_id`, so all questions and paraphrases about one state share a
   split. `build_data.py` drops any synthetic state whose word-8-gram containment with an eval state is
@@ -397,6 +443,7 @@ src/personal_jev/  schemas.py (request validation)  formatting.py (official temp
                    data.py (JSONL, splits)  train.py (LoRA)  evaluate.py (metrics, reports)
                    calibration.py (temperature, thresholds)  benchmark.py  server.py (HTTP)  cli.py
                    custom.py (shared-state model)  train_custom.py (its training)  -> docs/custom_model.md
+                   tree.py (shared-prefix tree scorer)  train_tree.py (its LoRA training)  -> docs/tree_model.md
 scripts/           build_hf.py  build_data.py  select_prompt.py  run_experiments.sh  summarize.py
                    compare_external.py (Jev / GPT-6 Astra via OpenRouter)  failures.py
 data/              dev.jsonl  eval.jsonl (+ eval/BRIEF.md, eval/review/)  hf.jsonl (+ hf/)  synthetic.jsonl (+ synthetic/BRIEF.md)
