@@ -73,3 +73,25 @@ def test_http_routes():
         assert post("/nope", {})[0] == 404
     finally:
         httpd.shutdown()
+
+
+def test_options_in_question_reaches_the_scorer():
+    """--options-in-question: choice/score questions get their option list in the instruction; yes/no ones do not."""
+    seen = []
+
+    class Recording(FakeScorer):
+        def score(self, texts, *a, **k):
+            seen.extend(texts)
+            return super().score(texts, *a, **k)
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Recording(), options_in_question=True))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{httpd.server_port}/api/alpha/decisions", json.dumps(EXAMPLE).encode(),
+                                     {"Content-Type": "application/json"})
+        json.loads(urllib.request.urlopen(req).read())
+    finally:
+        httpd.shutdown()
+    dept = [t for t in seen if "Which team should handle this?" in t]
+    assert dept and all("Options (exactly one is correct):" in t and "- billing: Payments, invoicing, refunds" in t for t in dept)
+    assert not any("Options (" in t for t in seen if "Is money involved?" in t)
