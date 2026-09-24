@@ -62,6 +62,20 @@ def test_tree_mask_is_ancestors_plus_own_causal_prefix():
     assert leaf_paths(t) == [[0, 1, 2, 3, 4], [0, 1, 2, 5], [0, 1, 6, 7]]
 
 
+@pytest.mark.parametrize("root_length", [1, 17, 513])
+def test_branch_mask_equals_full_mask_slice(root_length):
+    t = build_tree([1] * root_length, [([2, 3], [[4], [5, 6]]), ([7], [[8, 9, 10]])])
+    full = tree_mask(t)
+    branch = tree_mask(t, branches_only=True)
+    assert torch.equal(branch, full[root_length:, root_length:])
+    assert full[root_length:, :root_length].all()
+
+
+def test_branch_mask_size_does_not_grow_with_document():
+    t = build_tree([1] * 32000, [([2], [[3], [4]])])
+    assert tree_mask(t, branches_only=True).shape == (3, 3)
+
+
 def test_packed_and_cached_equal_standalone_sequences(tiny):
     """The central claim: each leaf scores exactly like the standalone sequence it stands for."""
     trees, _ = tiny.trees([parse_request(REQ)])
