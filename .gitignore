@@ -6,3 +6,5 @@ runs/
 reports/**/report.json
 reports/prompt_selection/
 *.log
+site/
+tmp/
