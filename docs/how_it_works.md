@@ -41,6 +41,30 @@ The tree puts the text first and branches every question and candidate off it:
   second pass, or through vLLM's prefix cache.
 - Details and results: [shared-prefix tree](tree_model.md).
 
+## Every option in the question
+
+The best models also list every option in the question text before scoring each one ("Options (exactly one is
+correct): - billing … - tech …"), in a fixed random order per question (`personal_jev/options.py`). Each candidate
+branch still judges one candidate, but now sees the alternatives. It adds about a point on eval2 and stacks with more
+data. The server applies the same transform with `--options-in-question`; adapters trained this way need it.
+
+## Qwen3.5: the tree for a hybrid model
+
+The best model, Qwen3.5-4B, is mostly Gated DeltaNet: three recurrent layers (a gated linear recurrence with a short
+convolution) for every full-attention layer. A tree mask cannot hide one branch from its siblings inside a recurrence,
+so `personal_jev/qwen35_tree.py` runs the same packed tree two ways:
+
+- **attention layers** read it through the tree mask, as above;
+- **DeltaNet layers** run level by level: the text, then every question from the text's final recurrent and
+  convolution state, then every candidate from its question's state. Gradients flow back through those copied states.
+
+Each candidate still scores exactly like the standalone `text + question + candidate` sequence (tested in fp32 on a
+tiny model, and on the real model: scores within 0.004, gradient cosine 0.99997 in fp32). Training this way reads the
+text once per state, so texts up to 8K tokens fit where full-sequence training had to stop at 2K; that alone is worth
++1.1 on eval2. Serving: `qwen35_tree.TreeServer` (the same tree, forward only), the forked-cache transformers path
+(`challengers.ChallengerScorer`), or vLLM (`vllm_qwen35.py`), which is exact but slow with many questions
+([speed](speed.md#qwen35-on-vllm-2026-09-25-l40s)).
+
 ## From scores to typed answers
 
 | type | probability | decision |

@@ -95,3 +95,26 @@ def test_options_in_question_reaches_the_scorer():
     dept = [t for t in seen if "Which team should handle this?" in t]
     assert dept and all("Options (exactly one is correct):" in t and "- billing: Payments, invoicing, refunds" in t for t in dept)
     assert not any("Options (" in t for t in seen if "Is money involved?" in t)
+
+
+def test_option_pointers_number_the_options_and_shorten_leaves():
+    """--option-pointers: the list is numbered once in the question and each leaf only says "option k"."""
+    seen = []
+
+    class Recording(FakeScorer):
+        def score(self, texts, *a, **k):
+            seen.extend(texts)
+            return super().score(texts, *a, **k)
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Recording(), option_pointers=True))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{httpd.server_port}/api/alpha/decisions", json.dumps(EXAMPLE).encode(),
+                                     {"Content-Type": "application/json"})
+        a = json.loads(urllib.request.urlopen(req).read())["answers"]
+    finally:
+        httpd.shutdown()
+    dept = [t for t in seen if "Which team should handle this?" in t]
+    assert len(dept) == 3 and all("1. " in t and "2. " in t and "3. " in t for t in dept)
+    assert sorted(t.count("option ") for t in dept) == [1, 1, 1]  # each pair ends with its own pointer leaf
+    assert set(a["department"]["probabilities"]) == {"billing", "technical", "sales"}  # answers keep the real labels

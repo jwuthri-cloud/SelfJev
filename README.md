@@ -11,48 +11,55 @@ undisclosed model, and measures every step against Jev on the same questions.
 [leaderboard](docs/leaderboard.md), [speed and cost](docs/speed.md), model write-ups and the lab notebook. The pages are
 the Markdown files in [docs/](docs/).
 
-## Status (2026-09-24)
+## Status (2026-09-25)
 
 | model | eval2 (target task, 1,991 q) | dev benchmark (3,471 q) |
 |---|---|---|
 | Jev (`typesafe/jev`, API) | **97.2** | 82.7 |
-| **Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, round-2b data** (`tree_4b_instruct_r2x64`) | **92.7** | **82.7** |
+| **Qwen3.5-4B + LoRA r64, trained with the shared-prefix tree, round-2b + round-3 data, options in the question** (`qwen35_4b_tree`, [weights/](weights/README.md)) | **95.6** | **84.4** |
+| Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, same data (`tree_4b_combo`, the fastest to serve) | 94.5 | 82.7 |
+| Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, round-2b data (`tree_4b_instruct_r2x64`) | 92.7 | 82.7 |
 | Qwen3-Reranker-4B + LoRA, shared-prefix tree, round-1 data (`tree_4b`) | 85.1 | 81.6 |
-| Qwen3-Reranker-4B + LoRA, stock pairs (`lora_4b`) | 86.5 | 80.3 |
 | Qwen3-Reranker-0.6B + LoRA, stock pairs (`lora_pilot`) | 68.8 | 73.5 |
 | GPT-6 Astra (reasoning low) | not scored (it judged eval2) | 85.8 |
 
-- **Quality:** 4.5 points behind Jev on eval2; tied on the dev benchmark. The biggest lever was verified target-task
-  training data (+5.5 on eval2), then the Instruct base (+3.0) and adapter capacity (+2.1).
-- **Speed:** the shared-prefix tree reads the text once and is 32–37× faster than scoring each (text, candidate) pair
-  for 16 questions × 3 candidates on 8K–16K-token texts. Jev still answers in a flat ~150 ms where one A10G needs
-  120 ms (8 tokens) to 755 ms (4,096 tokens) for one question.
+- **Quality:** 1.6 points behind Jev on eval2, ahead on the dev benchmark (p = 0.004). The levers, in order: verified
+  target-task training data, the base model (Instruct, then Qwen3.5), adapter rank, every option in the question, and
+  training Qwen3.5 with the tree (long texts fit).
+- **Speed:** the shared-prefix tree reads the text once (32–37× faster than scoring each pair). On an L40S with vLLM,
+  the Qwen3 tree answers one question in 55–228 ms server side (Jev ~100–130 ms flat) and costs less per request than
+  Jev on a busy GPU. Qwen3.5 on vLLM is exact but slow with many questions ([speed](docs/speed.md)).
+- **Train your own:** `pjev finetune` and `pjev rlcd` (reinforcement learning for calibrated decisions),
+  [docs/finetune.md](docs/finetune.md).
 - Every result, dead end and open idea: [docs/experiments.md](docs/experiments.md). What ran when:
   [docs/JOURNAL.md](docs/JOURNAL.md).
 
 ## Quick start
 
 ```bash
-uv sync
-uv run pjev classify examples/request.json                          # untrained Qwen3-Reranker-0.6B
-uv run pjev classify examples/request.json --tree --model Qwen/Qwen3-Reranker-4B \
-  --revision 22e683669bc0f0bd69640a1354a6d0aebcfeede5 --adapter runs/tree_4b/adapter --dtype bfloat16
-uv run pjev serve --adapter runs/lora_pilot/adapter --dtype bfloat16  # Decisions-API-shaped endpoint on :8000
-uv run pytest -q
+uv sync && git lfs pull                                              # code + the best adapters in weights/
+uv run pytest -q                                                     # CPU tests (some download the 0.6B model)
+uv run pjev classify examples/request.json                           # untrained Qwen3-Reranker-0.6B, runs anywhere
+# on a CUDA GPU: the best model as an HTTP server (POST /classify, POST /api/alpha/decisions)
+uv run python -m personal_jev.qwen35_tree serve --adapter weights/qwen35_4b_tree --options-in-question
+# fine-tune on your data, then RLCD
+uv run pjev finetune --data my_train.jsonl --out runs/mine --init weights/qwen35_4b_tree
+uv run pjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
 ```
 
-Trained adapters live in `runs/` (not in git). Request format, output rules and the API mapping:
-[docs/how_it_works.md](docs/how_it_works.md). Training, evaluation and data pipelines:
-[docs/reproduce.md](docs/reproduce.md).
+Request format, output rules and the API mapping: [docs/how_it_works.md](docs/how_it_works.md). Serving options,
+training, evaluation and data pipelines: [docs/reproduce.md](docs/reproduce.md).
 
 ## How it works
 
-1. A Qwen3 reranker (or instruct model) judges "does this text support this answer?" and the score is its `yes` − `no`
-   logit. LoRA adapters on the attention (and optionally MLP) projections are the only trained parameters.
-2. The **shared-prefix tree** puts the text first and branches every question and candidate off it with a tree
-   attention mask: the text is read once, and each leaf scores exactly like the standalone pair.
-3. Scores become typed answers: sigmoid for binary, softmax within a question for multiclass, per-candidate sigmoid for
-   multilabel, with optional held-out temperatures and thresholds.
+1. A Qwen3 or Qwen3.5 model judges "does this text support this answer?" and the score is its `yes` − `no` logit.
+   LoRA adapters are the only trained parameters.
+2. The **shared-prefix tree** puts the text first and branches every question and candidate off it: the text is read
+   once, and each candidate scores exactly like the standalone sequence. For Qwen3.5's recurrent layers the tree runs
+   level by level from copied states.
+3. Every option is listed in the question text, so each candidate is judged knowing its alternatives.
+4. Scores become typed answers: sigmoid for binary, softmax within a question for multiclass, per-candidate sigmoid for
+   multilabel.
 
 ## Docs site
 
