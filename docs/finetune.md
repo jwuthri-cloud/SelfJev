@@ -4,6 +4,8 @@ Two commands train the best recipe (Qwen3.5-4B, shared-prefix tree, LoRA) on you
 supervised step and `pjev rlcd` for reinforcement learning toward calibrated decisions. Both run on one CUDA GPU (an
 AWS box, never the laptop) and write a run directory you can serve directly.
 
+![Fine-tune vs RLCD: the learning signal, the data each needs, and how hard a confident mistake is punished](assets/rlcd_vs_finetune.svg)
+
 ```bash
 # 1. supervised fine-tune, from scratch or on top of the best model
 uv run pjev finetune --data my_train.jsonl --out runs/mine --init weights/qwen35_4b_tree
