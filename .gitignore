@@ -8,3 +8,4 @@ reports/prompt_selection/
 *.log
 site/
 tmp/
+data/all.jsonl.gz

@@ -20,6 +20,42 @@ def test_rlcd_reports_the_base_rate():
         assert abs(float(p) - want) < 0.05, (typ, float(p))
 
 
+def test_soft_targets_are_learned():
+    """Label mixed 50/50 with a teacher: binary yes + teacher 0.4 -> 0.7; choice 0 + teacher (0.2, 0.8) -> 0.6. Both the
+    fine-tune loss and RLCD's reward should land there on a single question."""
+    from personal_jev.finetune import log_loss, soft_target
+    torch.manual_seed(0)
+    for typ, target, soft, want in (("binary", True, 0.4, 0.7), ("multiclass", 0, {"a": 0.2, "b": 0.8}, 0.6)):
+        n = 1 if typ == "binary" else 2
+        it = {"type": typ, "ids": list(range(n)), "target": target, "candidate_ids": [] if n == 1 else ["a", "b"], "ref": [0.0] * n}
+        it["y"] = soft_target(it, soft, 0.5)
+        for name, loss in (("finetune", lambda t: log_loss(t, [it])),
+                           ("rlcd", lambda t: rlcd_loss(t, [it], {"log": 1, "brier": 1, "spherical": 1}, samples=64, sigma=0.2, beta=0.0))):
+            theta = torch.zeros(n, requires_grad=True)
+            opt = torch.optim.Adam([theta], lr=0.05)
+            for _ in range(400):
+                opt.zero_grad()
+                loss(theta).backward()
+                opt.step()
+            p = (theta.sigmoid()[0] if typ == "binary" else theta.softmax(0)[0]).item()
+            assert abs(p - want) < 0.05, (typ, name, p)
+
+
+def test_confident_miss_cost_hedges():
+    """Target 95% yes: the log score alone reports 0.95; with a confident-miss cost of 5 (5 x 5% expected loss above 0.9)
+    the best report drops just under 0.9."""
+    torch.manual_seed(0)
+    for weights, lo, hi in (({"log": 1}, 0.93, 0.97), ({"log": 1, "confident_miss": 5}, 0.8, 0.9)):
+        it = {"type": "binary", "ids": [0], "target": True, "y": [[0.95, 0.05]], "ref": [0.0]}
+        theta = torch.zeros(1, requires_grad=True)
+        opt = torch.optim.Adam([theta], lr=0.05)
+        for _ in range(600):
+            opt.zero_grad()
+            rlcd_loss(theta, [it], weights, samples=64, sigma=0.2, beta=0.0).backward()
+            opt.step()
+        assert lo < theta.sigmoid().item() < hi, (weights, theta.sigmoid().item())
+
+
 def test_metrics_by_hand():
     items = [{"type": "binary", "ids": [0], "target": True}, {"type": "multiclass", "ids": [0, 1], "target": 1}]
     m = metrics(items, [[2.0], [3.0, 0.0]])  # a right yes at p 0.88, a wrong confident choice at p 0.95
@@ -80,3 +116,9 @@ def test_finetune_then_rlcd_end_to_end_on_a_tiny_model(tmp_path, monkeypatch):
     rl = finetune.train("rlcd", str(data), tmp_path / "rl", init=str(tmp_path / "ft/adapter"), batch_tokens=512, grad_accum=2, eval_every=5)
     assert rl["select_by"] == "validation brier" and {"ece", "brier", "confidently_wrong"} <= set(rl["best"])
     assert json.loads((tmp_path / "rl/train_meta.json").read_text())["rlcd"]["reward"] == {"log": 1.0, "brier": 1.0, "spherical": 1.0}
+    for r in rows:  # a teacher's probabilities on every row (scripts/jev_soft_targets.py's format)
+        r["soft"] = 0.6 if r["question"]["type"] == "binary" else {"a": 0.5, "b": 0.3, "c": 0.2}
+    data.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    for mode in ("finetune", "rlcd"):
+        m = finetune.train(mode, str(data), tmp_path / f"soft_{mode}", init=str(tmp_path / "ft/adapter"), batch_tokens=512, grad_accum=2, eval_every=5)
+        assert m["soft_targets"] == 38 and m["best"]["n"] == 2

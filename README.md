@@ -29,7 +29,7 @@ the Markdown files in [docs/](docs/).
 - **Speed:** the shared-prefix tree reads the text once (32–37× faster than scoring each pair). On an L40S with vLLM,
   the Qwen3 tree answers one question in 55–228 ms server side (Jev ~100–130 ms flat) and costs less per request than
   Jev on a busy GPU. Qwen3.5 on vLLM is exact but slow with many questions ([speed](docs/speed.md)).
-- **Train your own:** `pjev finetune` and `pjev rlcd` (reinforcement learning for calibrated decisions),
+- **Train your own:** `pjev finetune` and `pjev rlcd` (calibration training with proper scoring rules; Jev calls it RLCD),
   [docs/finetune.md](docs/finetune.md).
 - Every result, dead end and open idea: [docs/experiments.md](docs/experiments.md). What ran when:
   [docs/JOURNAL.md](docs/JOURNAL.md).
@@ -82,7 +82,8 @@ no heavy jobs on the laptop, and every paid resource needs the user's OK with a 
 src/personal_jev/  scoring backends (model.py stock, tree.py + vllm_tree.py, custom.py, jina.py, t5_shared.py),
                    training (train*.py), classify.py, evaluate.py, calibration.py, server.py, cli.py
 scripts/           data builders, GPU pipelines (run_*.sh), Jev comparison, summaries (ledger, eval2, curve)
-data/              public sets, authored eval, synthetic, hard cases (rounds 2–3), eval2, with briefs and reviews
+data/              THE dataset: data/all.jsonl.gz (every question + Jev's prediction; scripts/build_all.py),
+                   catalog and growth procedure in data/README.md (new data = a batch, scripts/grow_batch.sh)
 configs/           training configs          calib/  held-out calibration files
 reports/           every eval report, benchmark, review and generated summary
 docs/              the docs site: findings, write-ups, ledger and journal

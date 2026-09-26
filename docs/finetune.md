@@ -1,7 +1,7 @@
 # Fine-tune and RLCD
 
 Two commands train the best recipe (Qwen3.5-4B, shared-prefix tree, LoRA) on your own data: `pjev finetune` for the
-supervised step and `pjev rlcd` for reinforcement learning toward calibrated decisions. Both run on one CUDA GPU (an
+supervised step and `pjev rlcd` for calibration training, which Jev calls RLCD. Both run on one CUDA GPU (an
 AWS box, never the laptop) and write a run directory you can serve directly.
 
 ```bash
@@ -33,7 +33,8 @@ Picture a kid learning to guess which of two boxes holds the candy, and to say h
   sure and right earns a lot, sure and wrong loses a lot, unsure earns or loses a little. The kid tries a few
   different "how sure" answers, sees which ones earned more points, and leans toward those. The points are designed
   so that over many rounds the best strategy is to say exactly how sure you really are, and you can choose how much
-  a confident miss costs. Learning from points instead of from the answer key is reinforcement learning.
+  a confident miss costs. The points are computed from the same answer key: it is a different way of grading,
+  not a different kind of learning.
 - **The points are the reward.** A reward is a number that grades one attempt: higher is better.
 
 What changes inside the model is the same in both: the same small set of adjustable weights (the LoRA adapter, 1.4%
@@ -79,9 +80,12 @@ and tech 0.00, which a softmax turns into 62% billing, 38% tech. Then:
    batches cannot drag it far.
 5. Backpropagation into the same LoRA matrices, with smaller steps (learning rate 5e-5).
 
-In reinforcement-learning terms this is a policy gradient with a baseline: the model's scores define a distribution
-over tries, and the update raises the log-probability of each try in proportion to its advantage. Averaged over many
-tries it follows the slope of the expected reward.
+Despite the name, none of this is reinforcement learning. RL is an agent acting in an environment: its actions
+change what happens next, rewards can come late, and it must explore to learn what each action does. Here there is
+no environment and no sequence of actions, and the grade of every possible answer is known from the label. The
+sampled tries only borrow an RL tool, a policy-gradient estimator: averaged over many tries it follows the slope of
+the expected score, a slope that could be computed exactly. "RLCD" is the name Jev (and Laya) use; what it does here
+is supervised fine-tuning with a calibration score as the loss.
 
 ### How the reward changes the model
 
@@ -122,6 +126,9 @@ One question per line, the same format as every eval file in `data/`:
 - `type` is `binary` (target `true` / `false`, no candidates), `multiclass` (target: one candidate id) or `multilabel`
   (target: a list of candidate ids, possibly empty).
 - `id` and `family` are optional. Several questions about the same `state` share one tree: the text is encoded once.
+- `soft` (optional): a teacher's probabilities, P(yes) for binary or `{candidate id: p}` otherwise. Training then
+  targets (1 − `--soft-weight`) × label + `--soft-weight` × `soft` (default 0.5, so the label stays the answer);
+  validation stays on the labels. `scripts/jev_soft_targets.py` writes Jev's, from `data/all.jsonl.gz`.
 - `--val` gives a validation file; without it, 5% of `--data` (at most 1,000 questions) is held out.
 - Every option is listed in the question text (`options.py`), as for the best model; `--no-options-in-question` turns
   that off. Serve with the same setting.
@@ -148,6 +155,10 @@ to train a fresh adapter. `--base qwen35` uses Qwen3.5-2B for quick runs.
 
 - `--reward`: weights of `log`, `brier`, `spherical` (strictly proper scoring rules) and `accuracy` (the argmax
   decision is right; not proper on its own, keep a proper term next to it).
+- `confident_miss` in `--reward` is a cost, not a score: −1 for every decision made with confidence ≥ 0.9 that the
+  target says is wrong (expected under a soft target). `confident_miss=5` makes a confident mistake cost 5×; with a 95%
+  target the best report drops from 0.95 to just under 0.9 (test). It is not differentiable: the sampled tries are what
+  let RLCD optimize it, the one reward here a fine-tune cannot.
 - `--samples` (8) tries per question, drawn from a Gaussian around the model's scores with sd `--sigma` (0.3).
 - `--beta` (0.05): the KL penalty to the starting model's probabilities, computed once before training.
 - `--lr` defaults to 5e-5 (fine-tune: 2e-4); the best checkpoint is the one with the lowest validation Brier score.
@@ -179,3 +190,64 @@ same questions ([JOURNAL](JOURNAL.md), `reports/rlcd_2026-09-25/`):
   0.754 at 1.0); keep `--sigma` small.
 - For RLCD to matter, the reward has to carry more than the label: soft targets (judges' agreement, a teacher's
   probabilities) or a cost that punishes confident mistakes more than it rewards confident right answers.
+
+## Second test (2026-09-26): Jev's probabilities as soft targets, all the data
+
+From `weights/qwen35_4b_tree`, one epoch over 69,528 non-test questions of `data/all.jsonl.gz`, target 0.5 × label +
+0.5 × Jev (Jev is ≥ 0.9 sure of the label on 77% of them, hedges on 15%, disagrees on 8%). Final checkpoints
+([JOURNAL](JOURNAL.md), `reports/rlcd_jev_2026-09-26/`):
+
+| eval2 (1,991 q) | accuracy (paired vs start) | Brier | ECE | wrong decisions | ≥ 0.9 sure | mean confidence when wrong |
+|---|---|---|---|---|---|---|
+| `qwen35_4b_tree` (start) | 95.58 | 0.0480 | 0.0051 | 99 | 30 | 0.755 |
+| A: RLCD on Jev targets | 95.43 (15 / 18, p = 0.73) | 0.0446 | 0.0119 | 100 | 22 | 0.724 |
+| **B: fine-tune on Jev targets** | **95.73** (19 / 16, p = 0.74) | **0.0438** | 0.0245 | 94 | **14** | 0.708 |
+| Jev | 97.24 | 0.0335 | 0.0406 | 57 | 7 | 0.670 |
+
+| dev benchmark (3,471 q) | accuracy (paired vs start) | Brier | ECE | wrong decisions | ≥ 0.9 sure | mean confidence when wrong |
+|---|---|---|---|---|---|---|
+| `qwen35_4b_tree` (start) | 84.44 | 0.1787 | 0.0056 | 582 | 83 | 0.686 |
+| A: RLCD on Jev targets | 84.50 (76 / 74, p = 0.93) | 0.1816 | 0.0113 | 593 | 88 | 0.701 |
+| B: fine-tune on Jev targets | 84.41 (87 / 88, p = 1) | 0.1820 | 0.0127 | 603 | 75 | 0.693 |
+| Jev | 82.71 | 0.2105 | 0.0444 | 708 | 253 | 0.791 |
+
+- Soft targets do what hard labels could not: confident mistakes on eval2 halve (30 → 14, Jev 7) and Brier improves
+  9%, at the same accuracy. The dev benchmark is flat.
+- RLCD on the same targets moves less (the KL anchor) and is no better than the fine-tune: A vs B 4 / 10 on eval2
+  (p = 0.18). All its rewards peak at the same target as cross-entropy, so the sampling only adds noise.
+- The best-by-validation checkpoint is step 0 for soft-target runs (hard-label loss and Brier penalize hedging): use
+  `adapter_last`.
+
+### C: RLCD with a confident-mistake cost, on top of the fine-tune
+
+`--reward log=1,brier=1,spherical=1,confident_miss=5` from B's result, same data and settings:
+
+| eval2 (1,991 q) | accuracy (paired vs start) | Brier | ECE | wrong decisions | ≥ 0.9 sure | mean confidence when wrong |
+|---|---|---|---|---|---|---|
+| `qwen35_4b_tree` (start) | 95.58 | 0.0480 | 0.0051 | 99 | 30 | 0.755 |
+| B: fine-tune on Jev targets | 95.73 (19 / 16, p = 0.74) | **0.0438** | 0.0245 | 94 | 14 | 0.708 |
+| **C: B + RLCD with a 5× confident-mistake cost** | 95.68 (24 / 22, p = 0.88; vs B 9 / 10, p = 1) | 0.0518 | 0.0431 | 96 | **8** | 0.690 |
+| Jev | 97.24 | 0.0335 | 0.0406 | 57 | 7 | 0.670 |
+
+| dev benchmark (3,471 q) | accuracy | Brier | ECE | wrong decisions | ≥ 0.9 sure | mean confidence when wrong |
+|---|---|---|---|---|---|---|
+| `qwen35_4b_tree` (start) | 84.44 | 0.1787 | 0.0056 | 582 | 83 | 0.686 |
+| B | 84.41 | 0.1820 | 0.0127 | 603 | 75 | 0.693 |
+| **C** | 84.41 (vs B 17 / 17) | 0.1835 | 0.0298 | 597 | **48** | 0.672 |
+| Jev | 82.71 | 0.2105 | 0.0444 | 708 | 253 | 0.791 |
+
+- The cost does what fine-tuning cannot: confident mistakes 14 → 8 on eval2 (Jev 7), 75 → 48 on the dev benchmark,
+  ECE and confidence when wrong at Jev's level, same accuracy.
+- The price is sharpness: Brier 0.0438 → 0.0518, because the model also backs off on answers it gets right. Use B for the
+  best probabilities, C for Jev-like caution; a smaller weight trades between the two.
+- But compared at equal coverage, C is no better than B: it gets its few confident mistakes by being less sure
+  overall (≥ 0.9 sure on 77% of decisions, B 88.8%), the same trade a higher threshold on B gives for free:
+
+| mistakes among the k most confident decisions (eval2, 3,491) | 70% | 77% | 85% | 88% | 92% |
+|---|---|---|---|---|---|
+| `qwen35_4b_tree` | 3 | 8 | 14 | 16 | 29 |
+| B | 4 | **5** | **9** | 13 | **20** |
+| C | 4 | 8 | 10 | 12 | 24 |
+| Jev | 3 | 3 | 4 | 7 | 8 |
+
+- So the cost changed the model's confidence scale, not its ranking. Jev's real edge is ranking: it knows which answers are risky.
