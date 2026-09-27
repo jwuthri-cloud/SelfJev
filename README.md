@@ -11,19 +11,21 @@ undisclosed model, and measures every step against Jev on the same questions.
 [leaderboard](docs/leaderboard.md), [speed and cost](docs/speed.md), model write-ups and the lab notebook. The pages are
 the Markdown files in [docs/](docs/).
 
-## Status (2026-09-25)
+## Status (2026-09-26)
 
-| model | eval2 (target task, 1,991 q) | dev benchmark (3,471 q) |
-|---|---|---|
-| Jev (`typesafe/jev`, API) | **97.2** | 82.7 |
-| **Qwen3.5-4B + LoRA r64, trained with the shared-prefix tree, round-2b + round-3 data, options in the question** (`qwen35_4b_tree`, [weights/](weights/README.md)) | **95.6** | **84.4** |
-| Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, same data (`tree_4b_combo`, the fastest to serve) | 94.5 | 82.7 |
-| Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, round-2b data (`tree_4b_instruct_r2x64`) | 92.7 | 82.7 |
-| Qwen3-Reranker-4B + LoRA, shared-prefix tree, round-1 data (`tree_4b`) | 85.1 | 81.6 |
-| Qwen3-Reranker-0.6B + LoRA, stock pairs (`lora_pilot`) | 68.8 | 73.5 |
-| GPT-6 Astra (reasoning low) | not scored (it judged eval2) | 85.8 |
+| model | eval2 (target task, 1,991 q) | dev benchmark (3,471 q) | eval_llm (LLM evaluation, 946 q) |
+|---|---|---|---|
+| Jev (`typesafe/jev`, API) | **97.2** | 82.7 | 92.5 |
+| **`selfjev-4b`, the default**: Qwen3.5-4B + LoRA r64 trained from scratch with the shared-prefix tree on all 80K non-test questions (texts up to 16K), half-weight Jev probabilities as soft targets, options in the question ([weights/selfjev_4b](weights/selfjev_4b/model.json)) | **95.8** | 83.8 | **93.1** |
+| Qwen3.5-4B + LoRA r64, trained with the shared-prefix tree, round-2b + round-3 data, options in the question (`qwen35_4b_tree`, the previous default) | 95.6 | **84.4** | 82.1 |
+| Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, same data (`tree_4b_combo`, the fastest to serve) | 94.5 | 82.7 | |
+| Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, round-2b data (`tree_4b_instruct_r2x64`) | 92.7 | 82.7 | |
+| Qwen3-Reranker-4B + LoRA, shared-prefix tree, round-1 data (`tree_4b`) | 85.1 | 81.6 | |
+| Qwen3-Reranker-0.6B + LoRA, stock pairs (`lora_pilot`) | 68.8 | 73.5 | |
+| GPT-6 Astra (reasoning low) | not scored (it judged eval2) | 85.8 | |
 
-- **Quality:** 1.6 points behind Jev on eval2, ahead on the dev benchmark (p = 0.004). The levers, in order: verified
+- **Quality:** 1.4 points behind Jev on eval2, level with Jev on LLM evaluation (eval_llm 93.1 vs 92.5), ahead on the dev
+  benchmark. `selfjev-4b` makes 11 confident mistakes on eval2 (≥ 0.9 sure and wrong; `qwen35_4b_tree` 30, Jev 7). The levers, in order: verified
   target-task training data, the base model (Instruct, then Qwen3.5), adapter rank, every option in the question, and
   training Qwen3.5 with the tree (long texts fit).
 - **Speed:** the shared-prefix tree reads the text once (32–37× faster than scoring each pair). On an L40S with vLLM,
@@ -41,9 +43,9 @@ uv sync && git lfs pull                                              # code + th
 uv run pytest -q                                                     # CPU tests (some download the 0.6B model)
 uv run pjev classify examples/request.json                           # untrained Qwen3-Reranker-0.6B, runs anywhere
 # on a CUDA GPU: the best model as an HTTP server (POST /classify, POST /api/alpha/decisions)
-uv run python -m personal_jev.qwen35_tree serve --adapter weights/qwen35_4b_tree --options-in-question
+uv run python -m personal_jev.qwen35_tree serve --adapter weights/selfjev_4b --options-in-question
 # fine-tune on your data, then RLCD
-uv run pjev finetune --data my_train.jsonl --out runs/mine --init weights/qwen35_4b_tree
+uv run pjev finetune --data my_train.jsonl --out runs/mine --init weights/selfjev_4b
 uv run pjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
 ```
 
