@@ -3,10 +3,11 @@
   selfjev deploy aws up --name prod --instance g6.xlarge --region us-east-2     # prints the endpoint and the API key
   selfjev deploy aws status --name prod
   selfjev deploy aws down --name prod                                          # terminates; deletes the SG and key pair
+  selfjev deploy aws up --name ft --instance g6e.xlarge --fine-tuning          # + /v1/files, /v1/fine_tuning/jobs (48 GB GPU)
 
 The box: NVIDIA's Deep Learning Base AMI (drivers, CUDA), this repository at a pinned ref with only the
 selfjev-4b weights from Git LFS, `uv sync --extra serve --extra gpu`, the base model pre-downloaded, and
-`selfjev serve` as a systemd service on port 8000 behind a Bearer key. Setup takes 10 to 15 minutes. State lives in
+`selfjev serve` as a systemd service on port 8000 behind a Bearer key (`up` waits up to 30 min for it). State lives in
 ~/.selfjev/deployments/<name>.json; every AWS resource is tagged Project=selfjev, Name=selfjev-<name>.
 """
 
@@ -31,9 +32,10 @@ MACHINES = {
 }
 
 
-def user_data(api_key: str, ref: str, max_hours: float | None = None) -> str:
+def user_data(api_key: str, ref: str, max_hours: float | None = None, fine_tuning: bool = False) -> str:
     """The first-boot script: install, fetch the weights and the base model, start the service."""
     cap = f"shutdown -h +{int(max_hours * 60)}  # cost cap: the instance terminates on shutdown\n" if max_hours else ""
+    ft = " --fine-tuning --home /home/ubuntu/.selfjev/server" if fine_tuning else ""
     return f"""#!/bin/bash
 set -euxo pipefail
 exec > /var/log/selfjev-setup.log 2>&1
@@ -58,7 +60,7 @@ After=network-online.target
 User=ubuntu
 WorkingDirectory=/home/ubuntu/selfjev
 Environment=SELFJEV_API_KEYS={api_key}
-ExecStart=/home/ubuntu/.local/bin/uv run --no-sync selfjev serve --host 0.0.0.0 --port {PORT}
+ExecStart=/home/ubuntu/.local/bin/uv run --no-sync selfjev serve --host 0.0.0.0 --port {PORT}{ft}
 Restart=always
 RestartSec=5
 
@@ -94,10 +96,20 @@ def _healthy(url: str, key: str) -> bool:
 
 
 def up(
-    name, instance="g6.xlarge", region="us-east-2", allow_cidr="0.0.0.0/0", ref="master", api_key=None, max_hours=None, ssh=False, wait=True
+    name,
+    instance="g6.xlarge",
+    region="us-east-2",
+    allow_cidr="0.0.0.0/0",
+    ref="master",
+    api_key=None,
+    max_hours=None,
+    ssh=False,
+    wait=True,
+    fine_tuning=False,
 ):
     """Launch a box; returns the deployment record (endpoint, key, ids). ssh=True adds a key pair and port 22 from this
-    machine's IP (for reading /var/log/selfjev-setup.log). Raises if `name` is already deployed."""
+    machine's IP (for reading /var/log/selfjev-setup.log). fine_tuning=True also serves the fine-tuning routes; jobs
+    train next to serving, so pick a 48 GB GPU (g6e.xlarge). Raises if `name` is already deployed."""
     if _state(name).exists():
         raise SystemExit(f"deployment '{name}' exists ({_state(name)}); `selfjev deploy aws down --name {name}` first")
     ec2, ssm = _clients(region)
@@ -110,7 +122,8 @@ def up(
     ec2.authorize_security_group_ingress(
         GroupId=sg, IpPermissions=[{"IpProtocol": "tcp", "FromPort": PORT, "ToPort": PORT, "IpRanges": [{"CidrIp": allow_cidr}]}]
     )
-    record = {"name": name, "region": region, "instance_type": instance, "security_group": sg, "api_key": api_key, "ref": ref}
+    record = {"name": name, "region": region, "instance_type": instance, "security_group": sg, "api_key": api_key, "ref": ref,
+              "fine_tuning": fine_tuning}  # fmt: skip
     STATE.mkdir(parents=True, exist_ok=True)
     extra = {}
     if ssh:
@@ -132,7 +145,7 @@ def up(
             MinCount=1,
             MaxCount=1,
             SecurityGroupIds=[sg],
-            UserData=user_data(api_key, ref, max_hours),
+            UserData=user_data(api_key, ref, max_hours, fine_tuning),
             InstanceInitiatedShutdownBehavior="terminate",
             BlockDeviceMappings=[{"DeviceName": "/dev/sda1", "Ebs": {"VolumeSize": 100, "VolumeType": "gp3", "DeleteOnTermination": True}}],
             TagSpecifications=_tags(name, "instance") + _tags(name, "volume"),

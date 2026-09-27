@@ -44,7 +44,7 @@ The tree puts the text first and branches every question and candidate off it:
 ## Every option in the question
 
 The best models also list every option in the question text before scoring each one ("Options (exactly one is
-correct): - billing … - tech …"), in a fixed random order per question (`selfjev/options.py`). Each candidate
+correct): - billing … - tech …"), in a fixed random order per question (`selfjev/core/options.py`). Each candidate
 branch still judges one candidate, but now sees the alternatives. It adds about a point on eval2 and stacks with more
 data. The server applies the same transform with `--options-in-question`; adapters trained this way need it.
 
@@ -52,7 +52,7 @@ data. The server applies the same transform with `--options-in-question`; adapte
 
 The best model, Qwen3.5-4B, is mostly Gated DeltaNet: three recurrent layers (a gated linear recurrence with a short
 convolution) for every full-attention layer. A tree mask cannot hide one branch from its siblings inside a recurrence,
-so `selfjev/qwen35_tree.py` runs the same packed tree two ways:
+so `selfjev/engine/tree.py` runs the same packed tree two ways:
 
 - **attention layers** read it through the tree mask, as above;
 - **DeltaNet layers** run level by level: the text, then every question from the text's final recurrent and

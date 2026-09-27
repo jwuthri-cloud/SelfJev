@@ -10,7 +10,8 @@ def test_user_data_installs_the_pinned_ref_and_serves_behind_the_key():
     assert "git lfs pull --include 'weights/selfjev_4b/*'" in script  # only the served adapter, not the whole LFS store
     assert "uv sync --frozen --no-dev --extra serve --extra gpu" in script and BASE_MODEL[1] in script
     assert "Environment=SELFJEV_API_KEYS=sj-key" in script and f"selfjev serve --host 0.0.0.0 --port {PORT}" in script
-    assert "shutdown" not in user_data("k", "master")
+    assert "shutdown" not in user_data("k", "master") and "--fine-tuning" not in script
+    assert f"--port {PORT} --fine-tuning --home /home/ubuntu/.selfjev/server" in user_data("k", "master", fine_tuning=True)
 
 
 def test_machine_presets_fit_the_model():

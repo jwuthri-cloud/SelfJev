@@ -19,7 +19,7 @@ The tree server scores exactly like standalone sequences (CPU test on a tiny mod
 The vLLM path (`selfjev merge`, then `selfjev serve --engine vllm`) is the one measured on the real model: same
 accuracy, fast for one question, slow for many ([speed](speed.md)).
 
-Code: [src/selfjev/finetune.py](../src/selfjev/finetune.py). Tests (CPU, a tiny random model):
+Code: [src/selfjev/training/](../src/selfjev/training/finetune.py) (`finetune.py` the loop, `rlcd.py` the objective). Tests (CPU, a tiny random model):
 [tests/training/test_finetune.py](../tests/training/test_finetune.py).
 
 ## Part 1: fine-tune vs RLCD in plain words

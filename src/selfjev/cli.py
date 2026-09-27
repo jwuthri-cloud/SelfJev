@@ -123,6 +123,7 @@ def main(argv=None):
     aws.add_argument("--max-hours", type=float, help="terminate the box after this many hours (a cost cap for trials)")
     aws.add_argument("--ssh", action="store_true", help="also a key pair and port 22 from this machine, for debugging")
     aws.add_argument("--no-wait", action="store_true", help="return once the instance runs, before the server is ready")
+    aws.add_argument("--fine-tuning", action="store_true", help="also serve the fine-tuning routes (jobs train on the box: 48 GB GPU)")
     a = ap.parse_args(argv)
 
     if a.cmd == "serve":
@@ -179,7 +180,7 @@ def main(argv=None):
             for k, (gpu, price, use) in aws.MACHINES.items():
                 print(f"{k:13s} {gpu:22s} ${price:.3f}/h  {use}")
         elif a.action == "up":
-            rec = aws.up(a.name, a.instance, a.region, a.allow_cidr, a.ref, a.api_key, a.max_hours, a.ssh, not a.no_wait)
+            rec = aws.up(a.name, a.instance, a.region, a.allow_cidr, a.ref, a.api_key, a.max_hours, a.ssh, not a.no_wait, a.fine_tuning)
             print(json.dumps({k: rec[k] for k in rec if k != "security_group"}, indent=2))
         elif a.action == "list":
             print(json.dumps([{k: r[k] for k in ("name", "region", "instance_type", "endpoint")} for r in aws.listing()], indent=2))

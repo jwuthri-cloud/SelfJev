@@ -1,11 +1,12 @@
-# SelfJev (personal-jev)
+# selfjev
 
-Fast, instruction-conditioned **binary / multiclass / multilabel** decisions from open Qwen3 models: send a text (the
-*state*), natural-language questions and optional candidate labels with descriptions; get typed decisions and
-probabilities from batched forward passes, with no text generation.
+An open decisions model with [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)'s API. Send a text
+(the *state*) and questions: yes/no (`noul`), pick one (`choice`), a position on a scale (`score`) or all that apply
+(`multi`). Get typed answers with probabilities from forward passes, with no text generation. The model, `selfjev-4b`,
+is Qwen3.5-4B with a LoRA adapter; it runs on one GPU, and code written for Jev works by changing the base URL.
 
-It copies the *interface* of TypeSafe's [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), not its
-undisclosed model, and measures every step against Jev on the same questions.
+It copies the *interface* of TypeSafe's Jev, not its undisclosed model, and measures every step against Jev on the
+same questions.
 
 **Docs site: <https://jwuthri.github.io/SelfJev/>**, with the [key findings](docs/findings.md),
 [leaderboard](docs/leaderboard.md), [speed and cost](docs/speed.md), model write-ups and the lab notebook. The pages are
@@ -38,18 +39,57 @@ the Markdown files in [docs/](docs/).
 
 ## Quick start
 
+**Call it.** The SDK needs only httpx and pydantic:
+
 ```bash
-uv sync --group dev && git lfs pull                                  # code + the adapters in weights/
-uv run pytest -q                                                     # CPU tests, ~20 s
-# on a CUDA GPU: selfjev-4b as an HTTP server with Jev's API (POST /api/alpha/decisions)
+pip install "selfjev @ git+https://github.com/Jwuthri/SelfJev"
+```
+
+```python
+from selfjev import Choice, Noul, Score, SelfJev
+
+client = SelfJev(base_url="http://localhost:8000", api_key="...")  # or SELFJEV_BASE_URL / SELFJEV_API_KEY
+res = client.system_one(
+    state="Ticket 4411: the invoice was charged twice and the customer wants the second charge back.",
+    questions={
+        "refund": Noul("Does the customer ask for a refund?"),
+        "team": Choice("Which team should handle this?", {"billing": "billing and refunds", "tech": "outages and bugs"}),
+        "urgency": Score("How urgent is it?", ["not urgent", "this week", "today"]),
+    },
+)
+res.nouls["refund"].noul, res.choices["team"].choice, res.scores["urgency"].score
+```
+
+`AsyncSelfJev` is the same with `await`. Requests, answers and errors: [docs/api.md](docs/api.md).
+
+**Serve it** on one NVIDIA GPU with at least 16 GB:
+
+```bash
+git lfs pull --include "weights/selfjev_4b/*"
+uv sync --extra serve --extra gpu
 uv run selfjev serve --host 0.0.0.0 --port 8000
-# fine-tune on your data, then RLCD
+```
+
+Docker, and one command on AWS (`selfjev deploy aws up`, a g6.xlarge at $0.81/h): [docs/deploy.md](docs/deploy.md).
+
+**Fine-tune it** on your data. Over HTTP, `selfjev serve --fine-tuning` takes a JSONL of requests with their expected
+answers (`client.upload_file`, then `client.create_fine_tuning_job(..., method="supervised" or "rlcd")`) and serves
+the result next to `selfjev-4b`. On any GPU box:
+
+```bash
 uv run selfjev finetune --data my_train.jsonl --out runs/mine --init weights/selfjev_4b
 uv run selfjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
 ```
 
-Request format, output rules and the API mapping: [docs/how_it_works.md](docs/how_it_works.md). Serving options,
-training, evaluation and data pipelines: [docs/reproduce.md](docs/reproduce.md).
+What each buys: [docs/finetune.md](docs/finetune.md). How the model decides: [docs/how_it_works.md](docs/how_it_works.md).
+Training, evaluation and data pipelines: [docs/reproduce.md](docs/reproduce.md).
+
+**Develop:**
+
+```bash
+uv sync && uv run pytest -q            # CPU tests, ~20 s
+uv run pre-commit install              # ruff check + format on every commit (CI runs the same)
+```
 
 ## How it works
 
@@ -80,19 +120,26 @@ no heavy jobs on the laptop, and every paid resource needs the user's OK with a 
 ## Layout
 
 ```
-src/selfjev/  the default model: qwen35_tree.py (Qwen3.5 tree: training, TreeServer), finetune.py (selfjev finetune / rlcd),
-                   challengers.py (its prompt and forked cache), vllm_qwen35.py; the Qwen3 tree: tree.py, train_tree.py,
-                   vllm_tree.py; the stock pairs: model.py, train.py; shared: classify.py, evaluate.py, calibration.py,
-                   options.py, server.py, cli.py
-scripts/           data/ (builders, generators, judges, batches: grow_batch.sh), eval/ (ledger, eval2 summary, Jev
-                   comparison, calibration), train/ (the selfjev-4b recipe), aws/ (aws_launch.sh), docs/ (site links);
-                   their shared code is in the package: selfjev.data.catalog, selfjev.data.providers (paid APIs)
-data/              THE dataset: data/all.jsonl.gz (every question + Jev's prediction; scripts/data/build_all.py),
-                   catalog and growth procedure in data/README.md (new data = a batch, scripts/data/grow_batch.sh)
-weights/           the kept adapters (Git LFS)          configs/  training configs of the ledger runs
-reports/           every eval report, benchmark, review and generated summary
-docs/              the docs site: findings, write-ups, ledger and journal
-tests/             unit and real-model tests
+src/selfjev/
+  client.py, types.py   the SDK: SelfJev, AsyncSelfJev, Noul / Choice / Score / Multi (httpx + pydantic only)
+  server/               the HTTP API: app (routes, auth, errors), compat (Jev's format <-> internal), batching,
+                        metrics, finetuning (files, jobs, extra adapters)
+  engine/               scoring: qwen35 (model, prompt, cache), tree (shared-prefix tree, TreeServer), vllm
+  core/                 the internal request schema, option lists, typed answers
+  training/             selfjev finetune / rlcd: the loop, losses, the RLCD objective, tree batching
+  evaluation/           eval reports, calibration, benchmark, significance tests
+  data/                 loading and validation, the dataset catalog, paid API clients (OpenRouter, OpenAI, Jev)
+  deploy/               selfjev deploy aws
+  cli.py                selfjev serve | classify | eval | calibrate | compare | bench | finetune | rlcd | merge | deploy
+tests/                  mirrors src/selfjev; CPU only
+scripts/                data/ (builders, generators, judges, batches: grow_batch.sh), eval/ (ledger, eval2 summary,
+                        Jev comparison, calibration), train/ (the selfjev-4b recipe), aws/ (aws_launch.sh), docs/
+deploy/                 Dockerfile, docker-compose.yml
+data/                   THE dataset: data/all.jsonl.gz (every question + Jev's prediction; scripts/data/build_all.py),
+                        catalog and growth procedure in data/README.md (new data = a batch, scripts/data/grow_batch.sh)
+weights/                selfjev_4b (the default) and qwen35_4b_tree, Git LFS, model.json each
+reports/                every eval report, benchmark, review and generated summary
+docs/                   the docs site: API, deploy, findings, write-ups, ledger and journal
 ```
 
 Dead-end code (custom cross-attention, jina, T5Gemma, compact tree, option pointers, teacher distillation) and the
