@@ -1,5 +1,5 @@
 """Scores -> typed answers. A scorer implements score_requests(requests) -> (per request, per question, the
-candidate scores s = z_yes - z_no; stats): selfjev.engine's Qwen35Scorer, TreeServer and VllmScorer do.
+candidate scores s = z_yes - z_no; stats): selfjev.engine's TreeServer and VllmScorer do.
 
 binary:     p_yes = sigmoid(s / T); selected = p_yes >= threshold
 multiclass: p = softmax(scores / T) within the question; selected = argmax (or None when abstaining)

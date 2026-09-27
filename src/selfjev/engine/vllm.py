@@ -1,5 +1,5 @@
 """Qwen3.5 (hybrid Gated DeltaNet) served by vLLM: the shared-document model of selfjev.engine.qwen35.Qwen35Scorer
-(challenger-state-first-v1 prompts, e.g. the qwen35_4b_tree adapter) with its LoRA merged.
+(challenger-state-first-v1 prompts: selfjev-4b) with its LoRA merged.
 
 One prompt per candidate (root + branch token ids, exactly Qwen35Scorer.entry's); vLLM's prefix cache shares the
 document between them. Readout: one generated token restricted to {yes, no} with processed logprobs, so
@@ -15,12 +15,10 @@ import time
 from pathlib import Path
 
 from ..data import sha256_file
-from .qwen35 import INSTRUCTION, MODELS, Qwen35Scorer
-
-QWEN35_4B = MODELS["qwen35_4b"]
+from .qwen35 import BASE, INSTRUCTION, Qwen35Scorer
 
 
-def merge(adapter, out, model_id=QWEN35_4B[0], revision=QWEN35_4B[1]):
+def merge(adapter, out, model_id=BASE[0], revision=BASE[1]):
     """The LoRA merged into a copy of the ORIGINAL checkpoint (multimodal Qwen3_5ForConditionalGeneration, the layout
     vLLM loads): every file copied, every language-model tensor the adapter changes replaced by its merged value."""
     import shutil
@@ -81,7 +79,7 @@ class VllmScorer:
 
         self.max_length, self.tokenizer = max_length, AutoTokenizer.from_pretrained(model_dir)
         self._enc = object.__new__(Qwen35Scorer)  # only its prompt builder: entry() needs these attributes
-        self._enc.__dict__.update(name="qwen35_4b", tokenizer=self.tokenizer, max_length=max_length)
+        self._enc.__dict__.update(tokenizer=self.tokenizer, max_length=max_length)
         self.yes, self.no = (self._enc.tokens(s) for s in ("yes", "no"))
         assert len(self.yes) == len(self.no) == 1, (self.yes, self.no)
         self.yes, self.no = self.yes[0], self.no[0]

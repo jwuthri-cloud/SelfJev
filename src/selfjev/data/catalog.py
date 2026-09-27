@@ -80,17 +80,11 @@ TEST_DATASETS = {"eval", "eval2", "eval_llm", "compact_challenge_v1"}  # never t
 # left out of all.jsonl.gz on purpose: path, what it is
 DERIVED = [
     (
-        "data/hardcases_nb.jsonl",
-        "round 2 with `none`-correct capped at 10% (round 2b; a subset of hardcases). Not tracked: "
-        "`scripts/data/rebalance_nota.py` rebuilds it byte for byte (docs/reproduce.md, Older recipes)",
-    ),
-    (
         "data/ova/*.jsonl",
-        "every option listed in the question (the transform the best models train and serve with); eval2, eval_llm, "
-        "hf and eval are tracked, the training copies are rebuilt by `scripts/data/options_in_question.py`",
+        "the test sets with every option listed in the question (the transform selfjev-4b trains and serves with), "
+        "for `selfjev eval`; built by `scripts/data/options_in_question.py`",
     ),
-    ("data/val_sample_1200.txt", "the 1,200 validation ids of qwen35_4b_tree / selfjev-4b (`scripts/train/jev_soft_targets.py`)"),
-    ("data/dev.jsonl", "14-text fixtures for unit tests"),
+    ("data/val_sample_1200.txt", "the 1,200 validation ids of every selfjev-4b run (`scripts/train/jev_soft_targets.py`)"),
     ("data/*/raw/, data/*/review/", "per-writer source files, judge answers, agreement reports (inputs of the builds above)"),
 ]
 

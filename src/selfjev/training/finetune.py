@@ -9,7 +9,7 @@ Data: JSONL, one question per line in the eval format: {"state": "...", "questio
 --no-options-in-question; serve the result the same way (--options-in-question). Needs one CUDA GPU (AGENTS.md: never
 the laptop). Writes <out>/adapter (best validation), <out>/adapter_last and <out>/train_meta.json.
 
-finetune: cross-entropy on the targets (the log score), the recipe of weights/qwen35_4b_tree and weights/selfjev_4b.
+finetune: cross-entropy on the targets (the log score), the recipe of weights/selfjev_4b.
 rlcd: the same loop with the RLCD objective (selfjev.training.rlcd) instead of cross-entropy.
 
 Soft targets (both modes): a row may carry "soft", a teacher's probabilities (P(yes) for binary, {candidate id: p}
@@ -31,7 +31,7 @@ import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
 
 from ..core.options import with_options
-from ..engine import tree as qwen35_tree
+from ..engine import tree
 from ..engine.qwen35 import Qwen35Scorer
 from .batching import group_by_state, micro_batches, trees_for
 from .losses import grouped_loss, question_correct
@@ -97,7 +97,7 @@ def score_items(sc, items, roots, budget):
     with torch.no_grad():
         for b in micro_batches(items, roots, budget, random.Random(0)):
             chunk = group_by_state([items[i] for i in b])
-            s, k = qwen35_tree.score(sc, trees_for(chunk, roots)).float().tolist(), 0
+            s, k = tree.score(sc, trees_for(chunk, roots)).float().tolist(), 0
             for it in chunk:
                 out[it["id"]], k = s[k : k + len(it["ids"])], k + len(it["ids"])
     return [out[it["id"]] for it in items]
@@ -109,7 +109,6 @@ def train(
     out,
     val=None,
     init=None,
-    base="qwen35_4b",
     options_in_question=True,
     epochs=1,
     lr=None,
@@ -138,9 +137,9 @@ def train(
         rng.shuffle(rows)
         k = min(1000, max(1, len(rows) // 20))
         vrows, rows = rows[:k], rows[k:]
-    sc = Qwen35Scorer(base)
-    tr, roots, dropped = qwen35_tree.encode_items(sc, rows, max_length)
-    va, vroots, vdropped = qwen35_tree.encode_items(sc, vrows, max_length)
+    sc = Qwen35Scorer()
+    tr, roots, dropped = tree.encode_items(sc, rows, max_length)
+    va, vroots, vdropped = tree.encode_items(sc, vrows, max_length)
     soft = {r["id"]: r["soft"] for r in rows if "soft" in r}
     for it in tr:  # training items only: validation keeps scoring against the labels
         if it["id"] in soft:
@@ -217,7 +216,7 @@ def train(
             total = 0.0
             for b in group:
                 its = group_by_state([tr[i] for i in b])
-                s = qwen35_tree.score(sc, trees_for(its, roots)).float()
+                s = tree.score(sc, trees_for(its, roots)).float()
                 fit = log_loss if soft else grouped_loss
                 loss = (fit(s, its) if mode == "finetune" else rlcd_loss(s, its, reward_weights, samples, sigma, beta)) / nq
                 loss.backward()

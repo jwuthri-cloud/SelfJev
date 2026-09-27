@@ -87,7 +87,7 @@ def test_finetune_then_rlcd_end_to_end_on_a_tiny_model(tmp_path, monkeypatch):
     class Tiny:  # the parts of Qwen35Scorer that finetune.train uses, with a character-level "tokenizer"
         pad, device, max_length, meta = 0, "cpu", 4096, {"model": "tiny", "revision": "none", "prompt": "tiny"}
 
-        def __init__(self, base):
+        def __init__(self):
             torch.manual_seed(0)
             self.model = Qwen3_5ForCausalLM(
                 Qwen3_5TextConfig(

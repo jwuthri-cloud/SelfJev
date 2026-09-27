@@ -8,7 +8,7 @@ per question the longest common prefix of its branches (instruction + "Proposed 
   final recurrent and conv state; every leaf from its question's), with gradients through those states. Right padding
   inside a level leaves the state untouched (q = k = v = 0, beta = 0, g = 0).
 Each leaf therefore equals its standalone sequence (root + question + leaf) up to kernel rounding, and the text is
-encoded once per state instead of once per candidate (tests/test_qwen35_tree.py checks scores and gradients).
+encoded once per state instead of once per candidate (tests/engine/test_tree.py checks scores and gradients).
 """
 
 import time
@@ -221,7 +221,7 @@ class TreeServer:
     def __init__(self, adapter, max_length=32768, max_batch_tokens=16384, merge=True):
         from .qwen35 import Qwen35Scorer
 
-        self.sc = Qwen35Scorer("qwen35_4b", adapter=adapter, max_length=max_length)
+        self.sc = Qwen35Scorer(adapter=adapter, max_length=max_length)
         if merge:
             self.sc.model = self.sc.model.merge_and_unload()
         self.merged, self.adapters = merge, {"default": str(adapter)}

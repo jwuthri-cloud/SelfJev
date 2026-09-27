@@ -166,6 +166,7 @@ def test_a_job_runs_the_cli_with_its_hyperparameters(tmp_path, monkeypatch):
     finetuning.run_training(job, tmp_path / "t.jsonl", tmp_path / "v.jsonl", "weights/selfjev_4b", tmp_path / "run", tmp_path / "log")
     assert seen["cmd"][:3] == [sys.executable, "-m", "selfjev.cli"]
     cli.main(seen["cmd"][3:])
-    a = got["args"]
-    assert a[:5] == ("rlcd", str(tmp_path / "t.jsonl"), str(tmp_path / "run"), str(tmp_path / "v.jsonl"), "weights/selfjev_4b")
-    assert (a[7], a[8]) == (2, 1e-5) and got["kw"]["reward_weights"] == {"log": 1.0, "confident_miss": 2.0} and got["kw"]["samples"] == 4
+    kw = got["kw"]
+    assert got["args"] == ("rlcd", str(tmp_path / "t.jsonl"), str(tmp_path / "run"))
+    assert (kw["val"], kw["init"], kw["epochs"], kw["lr"]) == (str(tmp_path / "v.jsonl"), "weights/selfjev_4b", 2, 1e-5)
+    assert kw["reward_weights"] == {"log": 1.0, "confident_miss": 2.0} and kw["samples"] == 4

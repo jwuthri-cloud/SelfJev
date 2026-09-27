@@ -55,7 +55,7 @@ def create_app(
     fine_tuning_home: Path | None = None,
     init_adapter: str | None = None,
 ) -> FastAPI:
-    """scorer: TreeServer, Qwen35Scorer or VllmScorer (anything with score_requests and meta). fine_tuning_home turns on
+    """scorer: TreeServer or VllmScorer (anything with score_requests and meta). fine_tuning_home turns on
     the fine-tuning routes; their models need a scorer that can load adapters (TreeServer(merge=False))."""
     keys = set(api_keys if api_keys is not None else filter(None, os.environ.get("SELFJEV_API_KEYS", "").split(",")))
     bearer = {f"Bearer {k}" for k in keys}

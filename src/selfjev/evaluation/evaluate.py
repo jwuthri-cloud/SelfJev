@@ -328,7 +328,7 @@ def markdown(r):
     lines = [
         "# Evaluation report",
         "",
-        f"- model `{meta['model']}` @ `{meta['revision'][:10]}` ({meta.get('architecture', 'stock reranker pairs')}), "
+        f"- model `{meta['model']}` @ `{meta['revision'][:10]}` ({meta.get('architecture', '?')}), "
         f"adapter/checkpoint `{meta['adapter']}`, prompt `{meta['prompt']}` ({meta['prompt_sha']})",
         f"- data {', '.join(d['path'] for d in meta['data'])}; splits {meta['splits']}; n={meta['n']}; calibration `{meta['calibration']}`",
         f"- {meta['device']} / {meta['dtype']}; {meta['created']}; wall {meta['wall_s']:.1f}s",

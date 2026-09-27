@@ -84,7 +84,7 @@ def default_grid(lengths=(512, 2048, 8192), questions=(1, 4, 16)):
 
 
 def run(scorer, grid=None, repeats=20, warmup=1, out_dir=None, min_repeats=3, row_budget_s=60.0, load_ms=None):
-    """scorer: any selfjev.engine scorer (TreeServer, Qwen35Scorer, VllmScorer) with .tokenizer and .device."""
+    """scorer: any selfjev.engine scorer (TreeServer, VllmScorer) with .tokenizer and .device."""
     grid = grid or default_grid()
     sync(scorer.device)
     first = classify(scorer, make_request(scorer.tokenizer, 512, 1, 3))
@@ -158,7 +158,7 @@ def markdown(r):
         "# Serving benchmark",
         "",
         f"- {m['chip']} / {m['device']} / {m['dtype']}; torch {m['torch']}, transformers {m['transformers']}; {m['created']}",
-        f"- model `{m['model']}` @ `{m['revision'][:10]}` ({m.get('architecture', 'stock reranker pairs')}), "
+        f"- model `{m['model']}` @ `{m['revision'][:10]}` ({m.get('architecture', '?')}), "
         f"adapter/checkpoint `{m['adapter']}`, prompt `{m['prompt']}`",
         f"- batching: max_batch_tokens={m['max_batch_tokens']} (padded), max_batch_size={m['max_batch_size']}; warmup {m['warmup']}; "
         f"samples per row in the `n` column (up to 20, at least 3, ~60 s budget per row)",
