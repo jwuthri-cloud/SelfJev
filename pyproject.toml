@@ -1,6 +1,6 @@
 [project]
-name = "personal-jev"
-version = "0.1.0"
+name = "selfjev"
+version = "0.2.0"
 description = "Instruction-conditioned binary/multiclass/multilabel decisions with open Qwen models (default: selfjev-4b, Qwen3.5-4B + LoRA, shared-prefix tree)"
 authors = [
     { name = "julien-connectly", email = "julien@connectly.ai" }
@@ -26,4 +26,4 @@ dev = [
 ]
 
 [project.scripts]
-pjev = "personal_jev.cli:main"
+selfjev = "selfjev.cli:main"

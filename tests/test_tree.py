@@ -10,10 +10,10 @@ import torch
 from peft import LoraConfig, get_peft_model
 from transformers import Qwen3Config, Qwen3ForCausalLM
 
-from personal_jev.classify import classify, classify_many
-from personal_jev.model import MODEL_ID, MODEL_REVISION, NO_ID, YES_ID, InputTooLong
-from personal_jev.schemas import parse_request
-from personal_jev.tree import TreeScorer, build_tree, leaf_paths, tree_mask
+from selfjev.classify import classify, classify_many
+from selfjev.model import MODEL_ID, MODEL_REVISION, NO_ID, YES_ID, InputTooLong
+from selfjev.schemas import parse_request
+from selfjev.tree import TreeScorer, build_tree, leaf_paths, tree_mask
 
 REQ = json.load(open("examples/request.json"))
 
@@ -155,7 +155,7 @@ def test_real_reranker_tree_equals_standalone():
 
 
 def test_train_tree_entrypoint_runs_end_to_end(tmp_path):
-    from personal_jev.train_tree import train
+    from selfjev.train_tree import train
     rows = [json.loads(line) for line in open("data/dev.jsonl")]
     for i, r in enumerate(rows):
         r["split"] = "train" if i % 3 else "validation"

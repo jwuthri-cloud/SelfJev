@@ -5,8 +5,8 @@ import random
 import torch
 from transformers import Qwen3_5ForCausalLM, Qwen3_5TextConfig
 
-from personal_jev import qwen35_tree
-from personal_jev.tree import build_tree, leaf_paths
+from selfjev import qwen35_tree
+from selfjev.tree import build_tree, leaf_paths
 
 
 class Stub:  # the three things qwen35_tree.score needs from ChallengerScorer
@@ -60,8 +60,8 @@ def test_split_branches_keeps_a_token_per_leaf():
 
 def test_tree_server_scores_match_standalone_sequences():
     """TreeServer.score_requests (the serving path): mixed requests, questions and candidate counts, mapped back in order."""
-    from personal_jev.qwen35_tree import TreeServer
-    from personal_jev.schemas import parse_request
+    from selfjev.qwen35_tree import TreeServer
+    from selfjev.schemas import parse_request
     torch.manual_seed(0)
     cfg = Qwen3_5TextConfig(vocab_size=300, hidden_size=32, intermediate_size=64, num_hidden_layers=4, num_attention_heads=4,
                             num_key_value_heads=2, head_dim=8, linear_conv_kernel_dim=4, linear_key_head_dim=8,

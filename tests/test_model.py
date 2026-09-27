@@ -6,11 +6,11 @@ import pytest
 import torch
 from peft import LoraConfig, get_peft_model
 
-from personal_jev.classify import classify
-from personal_jev.data import load
-from personal_jev.formatting import PREFIX, SUFFIX, pair_text
-from personal_jev.model import MODEL_ID, MODEL_REVISION, InputTooLong, Scorer
-from personal_jev.train import encode_items, grouped_loss, train
+from selfjev.classify import classify
+from selfjev.data import load
+from selfjev.formatting import PREFIX, SUFFIX, pair_text
+from selfjev.model import MODEL_ID, MODEL_REVISION, InputTooLong, Scorer
+from selfjev.train import encode_items, grouped_loss, train
 
 TOL = 1e-3  # fp32 logits; batching/padding may move scores by float noise only
 

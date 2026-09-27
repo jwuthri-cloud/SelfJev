@@ -1,7 +1,7 @@
 """RLCD's objective is proper: a policy trained on it reports calibrated probabilities. The metrics helper agrees with hand values."""
 import torch
 
-from personal_jev.finetune import metrics, rlcd_loss
+from selfjev.finetune import metrics, rlcd_loss
 
 
 def test_rlcd_reports_the_base_rate():
@@ -23,7 +23,7 @@ def test_rlcd_reports_the_base_rate():
 def test_soft_targets_are_learned():
     """Label mixed 50/50 with a teacher: binary yes + teacher 0.4 -> 0.7; choice 0 + teacher (0.2, 0.8) -> 0.6. Both the
     fine-tune loss and RLCD's reward should land there on a single question."""
-    from personal_jev.finetune import log_loss, soft_target
+    from selfjev.finetune import log_loss, soft_target
     torch.manual_seed(0)
     for typ, target, soft, want in (("binary", True, 0.4, 0.7), ("multiclass", 0, {"a": 0.2, "b": 0.8}, 0.6)):
         n = 1 if typ == "binary" else 2
@@ -72,7 +72,7 @@ def test_finetune_then_rlcd_end_to_end_on_a_tiny_model(tmp_path, monkeypatch):
 
     from transformers import Qwen3_5ForCausalLM, Qwen3_5TextConfig
 
-    from personal_jev import challengers, finetune
+    from selfjev import challengers, finetune
 
     class Tiny:  # the parts of ChallengerScorer that finetune.train uses, with a character-level "tokenizer"
         pad, device, max_length, meta = 0, "cpu", 4096, {"model": "tiny", "revision": "none", "prompt": "tiny"}

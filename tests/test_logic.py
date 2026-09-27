@@ -9,14 +9,14 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from personal_jev import calibration
-from personal_jev.classify import classify, classify_many, decide
-from personal_jev.data import expand_source, split_for, validate_example
-from personal_jev.evaluate import auroc, macro_f1, reliability
-from personal_jev.formatting import question_pairs
-from personal_jev.model import InputTooLong, Scorer
-from personal_jev.schemas import ValidationError, parse_question, parse_request
-from personal_jev.train import grouped_loss, micro_batches, shuffle_candidates
+from selfjev import calibration
+from selfjev.classify import classify, classify_many, decide
+from selfjev.data import expand_source, split_for, validate_example
+from selfjev.evaluate import auroc, macro_f1, reliability
+from selfjev.formatting import question_pairs
+from selfjev.model import InputTooLong, Scorer
+from selfjev.schemas import ValidationError, parse_question, parse_request
+from selfjev.train import grouped_loss, micro_batches, shuffle_candidates
 
 REQ = json.load(open("examples/request.json"))
 

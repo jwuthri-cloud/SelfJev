@@ -1,25 +1,25 @@
 # Fine-tune and RLCD
 
-Two commands train the best recipe (Qwen3.5-4B, shared-prefix tree, LoRA) on your own data: `pjev finetune` for the
-supervised step and `pjev rlcd` for calibration training, which Jev calls RLCD. Both run on one CUDA GPU (an
+Two commands train the best recipe (Qwen3.5-4B, shared-prefix tree, LoRA) on your own data: `selfjev finetune` for the
+supervised step and `selfjev rlcd` for calibration training, which Jev calls RLCD. Both run on one CUDA GPU (an
 AWS box, never the laptop) and write a run directory you can serve directly.
 
 ```bash
 # 1. supervised fine-tune, from scratch or on top of the best model
-uv run pjev finetune --data my_train.jsonl --out runs/mine --init weights/selfjev_4b
+uv run selfjev finetune --data my_train.jsonl --out runs/mine --init weights/selfjev_4b
 
 # 2. RLCD on top of it
-uv run pjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
+uv run selfjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
 
 # 3. serve the result (same option-list transform as in training)
-uv run python -m personal_jev.qwen35_tree serve --adapter runs/mine_rlcd/adapter --options-in-question
+uv run python -m selfjev.qwen35_tree serve --adapter runs/mine_rlcd/adapter --options-in-question
 ```
 
 The tree server scores exactly like standalone sequences (CPU test on a tiny model) but has not been timed on a GPU yet.
-The vLLM path (`python -m personal_jev.vllm_qwen35 merge`, then `serve`) is the one measured on the real model: same
+The vLLM path (`python -m selfjev.vllm_qwen35 merge`, then `serve`) is the one measured on the real model: same
 accuracy, fast for one question, slow for many ([speed](speed.md)).
 
-Code: [src/personal_jev/finetune.py](../src/personal_jev/finetune.py). Tests (CPU, a tiny random model):
+Code: [src/selfjev/finetune.py](../src/selfjev/finetune.py). Tests (CPU, a tiny random model):
 [tests/test_finetune.py](../tests/test_finetune.py).
 
 ## Part 1: fine-tune vs RLCD in plain words
@@ -53,7 +53,7 @@ it toward "be this sure". RLCD does not train a different part of the model, and
 | also needs | nothing | the starting model's own probabilities for the row (computed once before training: the anchor) and a reward, the rule that grades an attempt |
 | where the grade comes from | | here from the target (log, Brier and spherical score); it could be a cost table, a judge's verdict or what happened next, with no target at all |
 
-In our runs both commands read the same file, in order: `pjev finetune` first, then `pjev rlcd --init` on its result.
+In our runs both commands read the same file, in order: `selfjev finetune` first, then `selfjev rlcd --init` on its result.
 
 ### One update
 
@@ -169,7 +169,7 @@ answer is "yes" 70% of the time, the model learns to say 70% (binary), and 60% f
 60/30/10 split.
 
 Jev says it is trained with "RLCD" and gives no details; Laya, an open Jev-like engine, uses the name for policy
-gradient on proper-scoring-rule rewards ([landscape](landscape.md)), which is what `pjev rlcd` implements.
+gradient on proper-scoring-rule rewards ([landscape](landscape.md)), which is what `selfjev rlcd` implements.
 
 ## First test on the real model (2026-09-25): no gain
 

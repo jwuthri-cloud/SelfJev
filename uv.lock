@@ -1246,37 +1246,6 @@ wheels = [
 ]
 
 [[package]]
-name = "personal-jev"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "peft" },
-    { name = "safetensors" },
-    { name = "torch" },
-    { name = "transformers" },
-]
-
-[package.dev-dependencies]
-data = [
-    { name = "datasets" },
-]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "peft", specifier = ">=0.21.0" },
-    { name = "safetensors", specifier = ">=0.8.0" },
-    { name = "torch", specifier = ">=2.14.0" },
-    { name = "transformers", specifier = ">=5.17.0" },
-]
-
-[package.metadata.requires-dev]
-data = [{ name = "datasets", specifier = ">=5.0.1" }]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
-
-[[package]]
 name = "pluggy"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1698,6 +1667,37 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1b/6d/3fba214c1e5e0f69991677ec3bc17023f0421776975e1de0c682dca475e2/safetensors-0.8.0-cp310-abi3-win_amd64.whl", hash = "sha256:096ec1a98435df7beb08853bb5aa9081a84f23d0adc67ed1a0a10550f608373f", size = 355540, upload-time = "2026-06-09T07:52:27.832Z" },
     { url = "https://files.pythonhosted.org/packages/8d/fc/7eedc3510d97878876e32774eebbeb61c43f148a96e915c84229a3e967aa/safetensors-0.8.0-cp310-abi3-win_arm64.whl", hash = "sha256:f7838e5135a406ad3e02efdcb8cf2e5397d368b0154537c4fec682dbc544d452", size = 340500, upload-time = "2026-06-09T07:52:26.745Z" },
 ]
+
+[[package]]
+name = "selfjev"
+version = "0.2.0"
+source = { editable = "." }
+dependencies = [
+    { name = "peft" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+
+[package.dev-dependencies]
+data = [
+    { name = "datasets" },
+]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "peft", specifier = ">=0.21.0" },
+    { name = "safetensors", specifier = ">=0.8.0" },
+    { name = "torch", specifier = ">=2.14.0" },
+    { name = "transformers", specifier = ">=5.17.0" },
+]
+
+[package.metadata.requires-dev]
+data = [{ name = "datasets", specifier = ">=5.0.1" }]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "setuptools"

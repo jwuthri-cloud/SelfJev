@@ -1,7 +1,7 @@
 """Small deterministic checks for cache branching, padding and buffer precision (the Qwen3.5 scorer)."""
 import torch
 from transformers import DynamicCache,Qwen3Config
-from personal_jev.challengers import fork_cache,padded
+from selfjev.challengers import fork_cache,padded
 
 def test_fork_preserves_root_and_independent_rows():
  cache=DynamicCache(config=Qwen3Config(num_hidden_layers=1))
@@ -31,7 +31,7 @@ def test_padding_retains_all_tokens():
  assert mask.sum(1).tolist()==[3,1]
 
 def test_native_rotary_precision_survives_bf16_device_transfer():
- from personal_jev.challengers import place_model
+ from selfjev.challengers import place_model
  model=torch.nn.Linear(3,2,dtype=torch.bfloat16)
  frequency=torch.tensor([0.123456789,0.000123456789],dtype=torch.float32)
  model.register_buffer('inv_freq',frequency.clone())

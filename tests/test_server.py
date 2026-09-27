@@ -7,8 +7,8 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from personal_jev.schemas import ValidationError
-from personal_jev.server import answers_from, compat_to_request, make_handler
+from selfjev.schemas import ValidationError
+from selfjev.server import answers_from, compat_to_request, make_handler
 from tests.test_logic import FakeScorer
 
 EXAMPLE = {  # the request shape from the OpenRouter decisions example
@@ -27,7 +27,7 @@ EXAMPLE = {  # the request shape from the OpenRouter decisions example
 
 
 def test_example_request_maps_and_answers_have_the_documented_shape():
-    from personal_jev.classify import classify
+    from selfjev.classify import classify
     req, decode = compat_to_request(EXAMPLE)
     a = answers_from(classify(FakeScorer(), req), decode)
     assert list(a) == list(EXAMPLE["questions"])

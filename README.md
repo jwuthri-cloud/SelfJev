@@ -31,7 +31,7 @@ the Markdown files in [docs/](docs/).
 - **Speed:** the shared-prefix tree reads the text once (32–37× faster than scoring each pair). On an L40S with vLLM,
   the Qwen3 tree answers one question in 55–228 ms server side (Jev ~100–130 ms flat) and costs less per request than
   Jev on a busy GPU. Qwen3.5 on vLLM is exact but slow with many questions ([speed](docs/speed.md)).
-- **Train your own:** `pjev finetune` and `pjev rlcd` (calibration training with proper scoring rules; Jev calls it RLCD),
+- **Train your own:** `selfjev finetune` and `selfjev rlcd` (calibration training with proper scoring rules; Jev calls it RLCD),
   [docs/finetune.md](docs/finetune.md).
 - Every result, dead end and open idea: [docs/experiments.md](docs/experiments.md). What ran when:
   [docs/JOURNAL.md](docs/JOURNAL.md).
@@ -41,12 +41,12 @@ the Markdown files in [docs/](docs/).
 ```bash
 uv sync && git lfs pull                                              # code + the best adapters in weights/
 uv run pytest -q                                                     # CPU tests (some download the 0.6B model)
-uv run pjev classify examples/request.json                           # untrained Qwen3-Reranker-0.6B, runs anywhere
+uv run selfjev classify examples/request.json                           # untrained Qwen3-Reranker-0.6B, runs anywhere
 # on a CUDA GPU: the best model as an HTTP server (POST /classify, POST /api/alpha/decisions)
-uv run python -m personal_jev.qwen35_tree serve --adapter weights/selfjev_4b --options-in-question
+uv run python -m selfjev.qwen35_tree serve --adapter weights/selfjev_4b --options-in-question
 # fine-tune on your data, then RLCD
-uv run pjev finetune --data my_train.jsonl --out runs/mine --init weights/selfjev_4b
-uv run pjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
+uv run selfjev finetune --data my_train.jsonl --out runs/mine --init weights/selfjev_4b
+uv run selfjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
 ```
 
 Request format, output rules and the API mapping: [docs/how_it_works.md](docs/how_it_works.md). Serving options,
@@ -81,7 +81,7 @@ no heavy jobs on the laptop, and every paid resource needs the user's OK with a 
 ## Layout
 
 ```
-src/personal_jev/  the default model: qwen35_tree.py (Qwen3.5 tree: training, TreeServer), finetune.py (pjev finetune / rlcd),
+src/selfjev/  the default model: qwen35_tree.py (Qwen3.5 tree: training, TreeServer), finetune.py (selfjev finetune / rlcd),
                    challengers.py (its prompt and forked cache), vllm_qwen35.py; the Qwen3 tree: tree.py, train_tree.py,
                    vllm_tree.py; the stock pairs: model.py, train.py; shared: classify.py, evaluate.py, calibration.py,
                    options.py, server.py, cli.py
