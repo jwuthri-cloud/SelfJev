@@ -83,6 +83,7 @@ def main(argv=None):
     p.add_argument("--home", default=os.environ.get("SELFJEV_HOME", str(Path.home() / ".selfjev" / "server")), help="fine-tuning state")
     p = sub.add_parser("classify", help="answer one request in the internal schema (a JSON file, or - for stdin)")
     p.add_argument("request")
+    p.add_argument("--no-options-in-question", action="store_true", help="for adapters trained without the option list")
     _model_args(p)
     p = sub.add_parser("eval", help="evaluate JSONL examples; writes report.json and report.md")
     p.add_argument("--data", nargs="+", required=True)
@@ -133,9 +134,11 @@ def main(argv=None):
         serve(scorer, a.host, a.port, _calibration(a, scorer), not a.no_options_in_question, fine_tuning_home=home, init_adapter=a.adapter)
     elif a.cmd == "classify":
         from .core.answers import classify
+        from .core.options import with_option_lists
 
         scorer = _scorer(a)
         req = json.load(sys.stdin) if a.request == "-" else json.loads(Path(a.request).read_text())
+        req = req if a.no_options_in_question else with_option_lists(req)  # as selfjev-4b was trained
         print(json.dumps(classify(scorer, req, _calibration(a, scorer)), indent=2))
     elif a.cmd == "eval":
         from .evaluation.evaluate import run

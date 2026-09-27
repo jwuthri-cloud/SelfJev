@@ -27,7 +27,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6  # no LFS: the tests use data/dev.jsonl and examples/, both plain files
+      - uses: actions/checkout@v6  # no LFS: the tests use examples/ and tiny random models
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true

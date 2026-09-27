@@ -1,7 +1,7 @@
 """Shared-prefix tree for Qwen3.5 (hybrid Gated DeltaNet + gated full attention): training and scoring.
 
 Token ids are exactly Qwen35Scorer.entry's (challenger-state-first-v1), so the adapters trained here are served by
-the existing forked-cache inference. One packed row per state (build_tree): root = system prompt + document, then
+TreeServer below (or merged, by selfjev.engine.vllm). One packed row per state (build_tree): root = system prompt + document, then
 per question the longest common prefix of its branches (instruction + "Proposed answer:"), then one leaf per candidate.
 - Full-attention layers read the packed row through tree_mask.
 - Gated DeltaNet layers cannot take a mask: they run level by level (roots; every question segment from its root's

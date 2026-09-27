@@ -144,6 +144,16 @@ def test_too_long_input_is_422_and_a_full_queue_is_529():
     assert r.status_code == 529 and r.headers["retry-after"] == "1" and r.json()["error"]["type"] == "overloaded_error"
 
 
+def test_a_bug_is_a_json_500_with_the_request_id():
+    class Broken(FakeScorer):
+        def score_requests(self, reqs):
+            raise RuntimeError("boom")
+
+    with client(Broken()) as c:
+        r = c.post("/v1/systemone", json=EXAMPLE)
+    assert r.status_code == 500 and r.json()["error"]["type"] == "api_error" and r.headers["x-request-id"] in r.json()["error"]["message"]
+
+
 def test_internal_schema_route_models_health_metrics():
     req = json.loads(Path("examples/request.json").read_text())
     with client() as c:

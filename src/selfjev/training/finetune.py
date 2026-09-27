@@ -6,8 +6,9 @@
 Data: JSONL, one question per line in the eval format: {"state": "...", "question": {"type": "binary" | "multiclass" |
 "multilabel", "instruction": "...", "candidates": [{"id": ..., "description": ...}]}, "target": true | "id" | ["id", ...]}
 ("id" and "family" optional). Every option is listed in the question text (selfjev.core.options) unless
---no-options-in-question; serve the result the same way (--options-in-question). Needs one CUDA GPU (AGENTS.md: never
-the laptop). Writes <out>/adapter (best validation), <out>/adapter_last and <out>/train_meta.json.
+--no-options-in-question; selfjev serve and selfjev classify list them too (pass --no-options-in-question there for an
+adapter trained without). Needs one CUDA GPU (AGENTS.md: never the laptop). Writes <out>/adapter (best validation),
+<out>/adapter_last and <out>/train_meta.json.
 
 finetune: cross-entropy on the targets (the log score), the recipe of weights/selfjev_4b.
 rlcd: the same loop with the RLCD objective (selfjev.training.rlcd) instead of cross-entropy.

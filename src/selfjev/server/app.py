@@ -9,6 +9,7 @@ Concurrent requests are batched into shared forward passes (selfjev.server.batch
 SELFJEV_API_KEYS (comma-separated) or `api_keys`; none configured means open, for local self-hosting.
 """
 
+import logging
 import os
 import threading
 import time
@@ -21,7 +22,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from ..core.answers import classify_many, run_meta
-from ..core.options import with_options
+from ..core.options import with_option_lists
 from ..core.schemas import InputTooLong, ValidationError, parse_request
 from ..types import DecisionRequest, DecisionResponse, Usage
 from .batching import Batcher, Overloaded
@@ -31,6 +32,7 @@ from .metrics import Metrics
 
 JEV_ALIASES = frozenset({"jev-latest", "typesafe/jev-latest", "~typesafe/jev-latest"})  # Jev clients keep their model name
 OPEN_PATHS = frozenset({"/health", "/metrics"})
+log = logging.getLogger("selfjev.server")
 
 
 class APIException(Exception):
@@ -95,12 +97,8 @@ def create_app(
         title="selfjev", summary="Jev's decisions API on selfjev-4b", version=__import__("selfjev").__version__, lifespan=lifespan
     )
 
-    def prepare(native: dict):
-        if options_in_question:  # adapters trained with every option listed in the question need the same transform
-            native = native | {
-                "questions": [with_options(q, str(q.get("id"))) if isinstance(q, dict) else q for q in native.get("questions", [])]
-            }
-        return parse_request(native)
+    def prepare(native: dict):  # adapters trained with every option listed in the question need the same transform
+        return parse_request(with_option_lists(native) if options_in_question else native)
 
     @app.middleware("http")
     async def request_id_auth_metrics(request: Request, call_next):
@@ -108,7 +106,11 @@ def create_app(
         if bearer and request.url.path not in OPEN_PATHS and request.headers.get("authorization") not in bearer:
             response = _error(401, "authentication_error", "missing or unknown API key")
         else:
-            response = await call_next(request)
+            try:
+                response = await call_next(request)
+            except Exception:  # a bug: JSON like every other error, with the id that finds it in the log
+                log.exception("request %s failed", rid)
+                response = _error(500, "api_error", f"internal error; report it with request id {rid}")
         response.headers["x-request-id"] = rid
         metrics.observe(request.url.path, response.status_code, time.perf_counter() - t0)
         return response
