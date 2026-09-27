@@ -52,7 +52,7 @@ record, key included, is kept in `~/.selfjev/deployments/<name>.json`; every res
 
 | preset | GPU | $/h (us-east-2, on demand) | for |
 |---|---|---|---|
-| `g6.xlarge` (default) | L4, 24 GB | 0.805 | the cheapest box that serves selfjev-4b well |
+| `g6.xlarge` (default) | L4, 24 GB | 0.805 | the cheapest 24 GB GPU; serving on it is not measured yet |
 | `g5.xlarge` | A10G, 24 GB | 1.006 | when L4 capacity is short |
 | `g6e.xlarge` | L40S, 48 GB | 1.861 | long texts, more traffic, fine-tuning on the box |
 | `g6e.2xlarge` | L40S, 48 GB | 2.242 | as g6e.xlarge with more CPU |
@@ -69,8 +69,8 @@ There is no pause: `down` terminates the box and billing stops; `up` builds a fr
 `selfjev serve --fine-tuning` (or `selfjev deploy aws up --fine-tuning`) adds the
 [fine-tuning routes](api.md#fine-tuning): upload a JSONL of requests with their expected answers, start a supervised or
 RLCD job, and the fine-tuned model is served next to `selfjev-4b` as soon as the job succeeds. Jobs train on the same
-GPU as serving, one at a time. Our training runs used 48 GB cards (`g6e.xlarge`); a 24 GB card next to serving is
-untested and likely too small. Job state
+GPU as serving, one at a time. Our training runs used 48 GB L40S cards (`g6e.2xlarge`; `g6e.xlarge` has the same GPU); a
+24 GB card next to serving is untested and likely too small. Job state
 lives in `--home` (`SELFJEV_HOME`, default `~/.selfjev/server`). In Docker, mount a volume there and add the flag:
 `docker run --gpus all -p 8000:8000 -v selfjev:/root/.selfjev selfjev uv run --no-sync selfjev serve --host 0.0.0.0 --fine-tuning`.
 
@@ -81,6 +81,7 @@ To train elsewhere (a bigger box, a notebook), run `selfjev finetune` or `selfje
 
 - `GET /health`: 200 with the queue depth once the model is loaded (open, for load balancers).
 - `GET /metrics`: Prometheus text: requests by route and status, latency, questions and tokens, queue depth (open).
-- Every response carries `x-request-id`; errors are JSON (`{"error": {"type", "message", "param"}}`).
+- Every response carries `x-request-id`; errors are JSON (`{"error": {"type", "message", "param"}}`). An unhandled
+  error is a 500 whose message names the request id; the server logs its traceback under that id.
 - Concurrent requests are batched into shared forward passes (up to 32 requests, 5 ms wait). When 256 requests are
   waiting the server answers 529 with `Retry-After`; the SDK retries 429, 529 and 5xx with backoff.

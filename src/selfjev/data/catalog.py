@@ -13,8 +13,8 @@ DATASETS = [
     (
         "hf",
         "data/hf.jsonl",
-        "public human-labeled sets (Banking77, AG News, TweetEval, MNLI, CLINC150, DBpedia, TREC, emotion, BoolQ, SST-2, ...) "
-        "in our schema",
+        "11 public human-labeled sets in our schema: Banking77, AG News, TweetEval, MNLI, GoEmotions; held out (test rows "
+        "only): CLINC150, DBpedia, TREC, dair-ai emotion, BoolQ, SST-2",
         "training + dev-benchmark test",
         "docs/data.md",
     ),
@@ -81,10 +81,15 @@ TEST_DATASETS = {"eval", "eval2", "eval_llm", "compact_challenge_v1"}  # never t
 DERIVED = [
     (
         "data/ova/*.jsonl",
-        "the test sets with every option listed in the question (the transform selfjev-4b trains and serves with), "
-        "for `selfjev eval`; built by `scripts/data/options_in_question.py`",
+        "eval2, eval_llm and the dev benchmark's sources (hf, eval: every split, pass `--split test`) with every option "
+        "listed in the question (the transform selfjev-4b trains and serves with), for `selfjev eval`; built by "
+        "`scripts/data/options_in_question.py`",
     ),
-    ("data/val_sample_1200.txt", "the 1,200 validation ids of every selfjev-4b run (`scripts/train/jev_soft_targets.py`)"),
+    (
+        "data/val_sample_1200.txt",
+        "the 1,200-question validation sample of every Qwen3.5 run, held out of selfjev-4b's training mix "
+        "(`scripts/train/jev_soft_targets.py`)",
+    ),
     ("data/*/raw/, data/*/review/", "per-writer source files, judge answers, agreement reports (inputs of the builds above)"),
 ]
 

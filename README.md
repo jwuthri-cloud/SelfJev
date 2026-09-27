@@ -12,7 +12,7 @@ same questions.
 [leaderboard](docs/leaderboard.md), [speed and cost](docs/speed.md), model write-ups and the lab notebook. The pages are
 the Markdown files in [docs/](docs/).
 
-## Status (2026-09-26)
+## Status (2026-09-27)
 
 | model | eval2 (target task, 1,991 q) | dev benchmark (3,471 q) | eval_llm (LLM evaluation, 946 q) |
 |---|---|---|---|
@@ -25,13 +25,17 @@ the Markdown files in [docs/](docs/).
 | Qwen3-Reranker-0.6B + LoRA, stock pairs (`lora_pilot`) | 68.8 | 73.5 | |
 | GPT-6 Astra (reasoning low) | not scored (it judged eval2) | 85.8 | |
 
+Our models other than `selfjev-4b` are archived: code and adapters at tag `archive/pre-cleanup-2026-09-27`, reports in
+[reports/](reports/).
+
 - **Quality:** 1.4 points behind Jev on eval2, level with Jev on LLM evaluation (eval_llm 93.1 vs 92.5), ahead on the dev
   benchmark. `selfjev-4b` makes 11 confident mistakes on eval2 (≥ 0.9 sure and wrong; `qwen35_4b_tree` 30, Jev 7). The levers, in order: verified
   target-task training data, the base model (Instruct, then Qwen3.5), adapter rank, every option in the question, and
   training Qwen3.5 with the tree (long texts fit).
 - **Speed:** the shared-prefix tree reads the text once (32–37× faster than scoring each pair). On an L40S with vLLM,
-  the Qwen3 tree answers one question in 55–228 ms server side (Jev ~100–130 ms flat) and costs less per request than
-  Jev on a busy GPU. Qwen3.5 on vLLM is exact but slow with many questions ([speed](docs/speed.md)).
+  the archived Qwen3 tree (`tree_4b_combo`) answered one question in 55–228 ms server side (Jev ~100–130 ms flat) and
+  cost less per request than Jev on a busy GPU. Qwen3.5 on vLLM is exact but slow with many questions; the default
+  tree engine of `selfjev serve` is not timed on a GPU yet ([speed](docs/speed.md)).
 - **Train your own:** `selfjev finetune` and `selfjev rlcd` (calibration training with proper scoring rules; Jev calls it RLCD),
   [docs/finetune.md](docs/finetune.md).
 - Every result, dead end and open idea: [docs/experiments.md](docs/experiments.md). What ran when:
@@ -93,8 +97,8 @@ uv run pre-commit install              # ruff check + format on every commit (CI
 
 ## How it works
 
-1. A Qwen3 or Qwen3.5 model judges "does this text support this answer?" and the score is its `yes` − `no` logit.
-   LoRA adapters are the only trained parameters.
+1. Qwen3.5-4B (Qwen3 in the archived models) judges "does this text support this answer?" and the score is its
+   `yes` − `no` logit. A LoRA adapter holds the only trained parameters.
 2. The **shared-prefix tree** puts the text first and branches every question and candidate off it: the text is read
    once, and each candidate scores exactly like the standalone sequence. For Qwen3.5's recurrent layers the tree runs
    level by level from copied states.
@@ -124,7 +128,7 @@ src/selfjev/
   client.py, types.py   the SDK: SelfJev, AsyncSelfJev, Noul / Choice / Score / Multi (httpx + pydantic only)
   server/               the HTTP API: app (routes, auth, errors), compat (Jev's format <-> internal), batching,
                         metrics, finetuning (files, jobs, extra adapters)
-  engine/               scoring: qwen35 (model, prompt, cache), tree (shared-prefix tree, TreeServer), vllm
+  engine/               scoring: qwen35 (model, prompt, readout), tree (shared-prefix tree, TreeServer), vllm
   core/                 the internal request schema, option lists, typed answers
   training/             selfjev finetune / rlcd: the loop, losses, the RLCD objective, tree batching
   evaluation/           eval reports, calibration, benchmark, significance tests
@@ -135,15 +139,18 @@ tests/                  mirrors src/selfjev; CPU only
 scripts/                data/ (builders, generators, judges, batches: grow_batch.sh), eval/ (ledger, eval2 summary,
                         Jev comparison, calibration), train/ (the selfjev-4b recipe), aws/ (aws_launch.sh), docs/
 deploy/                 Dockerfile, docker-compose.yml
-data/                   THE dataset: data/all.jsonl.gz (every question + Jev's prediction; scripts/data/build_all.py),
-                        catalog and growth procedure in data/README.md (new data = a batch, scripts/data/grow_batch.sh)
-weights/                selfjev_4b (the default) and qwen35_4b_tree, Git LFS, model.json each
+data/                   THE dataset: data/all.jsonl.gz (every question + Jev's prediction; built locally by
+                        scripts/data/build_all.py, not in git), catalog and growth procedure in data/README.md
+                        (new data = a batch, scripts/data/grow_batch.sh)
+weights/                selfjev_4b (the default; Git LFS) and its model.json
 reports/                every eval report, benchmark, review and generated summary
 docs/                   the docs site: API, deploy, findings, write-ups, ledger and journal
 ```
 
-Dead-end code (custom cross-attention, jina, T5Gemma, compact tree, option pointers, teacher distillation) and the
-scripts of finished experiments are at tag `archive/pre-cleanup-2026-09-27`.
+Every other model (the Qwen3 trees, the stock reranker pipeline, Qwen3.5-2B, the forked-cache engine and the
+`qwen35_4b_tree` adapter), the dead ends (custom cross-attention, jina, T5Gemma, compact tree, option pointers, teacher
+distillation) and the scripts of finished experiments are at tag `archive/pre-cleanup-2026-09-27`, where the package is
+`src/personal_jev/` and the CLI `pjev`.
 
 ## Limitations
 

@@ -12,7 +12,8 @@ need `selfjev serve --fine-tuning`.
 | method | path | what |
 |---|---|---|
 | POST | `/v1/systemone` | answer questions about a state (TypeSafe's path) |
-| POST | `/api/alpha/decisions` | the same (OpenRouter's path) |
+| POST | `/api/alpha/decisions`, `/v1/decisions` | the same (OpenRouter's path; `/v1/decisions` is an alias) |
+| POST | `/classify` | the internal schema, with raw scores and run metadata ([how it works](how_it_works.md#request-and-response)) |
 | GET | `/v1/models` | served models: `selfjev-4b` and fine-tunes |
 | GET | `/health` | 200 once the model is loaded |
 | GET | `/metrics` | Prometheus metrics |
@@ -77,7 +78,8 @@ every request.
   `confidence` as for `choice` over the levels.
 - `multi`: every option with P ≥ 0.5, and each option's own probability (they do not sum to 1).
 - `model` names the model that answered: `selfjev-4b`, or a fine-tune. Jev's names (`jev-latest`,
-  `typesafe/jev-latest`) are accepted and answered by `selfjev-4b`. `output_tokens` is always 0: nothing is generated.
+  `typesafe/jev-latest`, `~typesafe/jev-latest`) are accepted and answered by `selfjev-4b`. `output_tokens` is always
+  0: nothing is generated.
 
 ## Errors
 
@@ -91,7 +93,7 @@ every request.
 | 422 | `invalid_request_error` | schema violations, too few options, input over the token limit, a bad training line |
 | 429 | `rate_limit_error` | from Jev or a proxy in front (selfjev queues instead); `Retry-After` says when to retry |
 | 529 | `overloaded_error` | the request queue is full; retry with backoff |
-| 500 | `api_error` | a bug: please report it with the `x-request-id` header |
+| 500 | `api_error` | a bug: please report it with the request id (in the message and the `x-request-id` header) |
 
 ## Fine-tuning
 

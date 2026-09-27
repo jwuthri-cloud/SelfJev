@@ -24,7 +24,7 @@ STATE = Path.home() / ".selfjev" / "deployments"
 PORT = 8000
 # on-demand $/h in us-east-2, 2026-09; other regions differ. The model needs >= 16 GB of GPU memory.
 MACHINES = {
-    "g6.xlarge": ("1x L4, 24 GB", 0.805, "the default: cheapest box that serves selfjev-4b well"),
+    "g6.xlarge": ("1x L4, 24 GB", 0.805, "the default: cheapest 24 GB GPU (serving on it not yet measured)"),
     "g5.xlarge": ("1x A10G, 24 GB", 1.006, "when L4 capacity is short"),
     "g6e.xlarge": ("1x L40S, 48 GB", 1.861, "faster, long texts, more concurrent traffic"),
     "g6e.2xlarge": ("1x L40S, 48 GB, 8 vCPU", 2.242, "as g6e.xlarge with more CPU"),

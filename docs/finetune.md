@@ -16,8 +16,10 @@ uv run selfjev serve --adapter runs/mine_rlcd/adapter
 ```
 
 The tree server scores exactly like standalone sequences (CPU test on a tiny model) but has not been timed on a GPU yet.
-The vLLM path (`selfjev merge`, then `selfjev serve --engine vllm`) is the one measured on the real model: same
-accuracy, fast for one question, slow for many ([speed](speed.md)).
+The vLLM path (`selfjev merge`, then `selfjev serve --engine vllm`) is the one measured on the real model (with
+`qwen35_4b_tree`): same accuracy, fast for one question, slow for many ([speed](speed.md)). Over HTTP,
+`selfjev serve --fine-tuning` runs the same two commands as jobs and serves the result next to `selfjev-4b`
+([API](api.md#fine-tuning)).
 
 Code: [src/selfjev/training/](../src/selfjev/training/finetune.py) (`finetune.py` the loop, `rlcd.py` the objective). Tests (CPU, a tiny random model):
 [tests/training/test_finetune.py](../tests/training/test_finetune.py).
@@ -132,7 +134,7 @@ One question per line, the same format as every eval file in `data/`:
 - `--val` gives a validation file; without it, 5% of `--data` (at most 1,000 questions) is held out.
 - Every option is listed in the question text (`options.py`), as for the best model; `--no-options-in-question` turns
   that off. Serve with the same setting.
-- Questions longer than `--max-length` (default 8,192 tokens: root + question + longest candidate) are dropped and
+- Questions longer than `--max-length` (default 16,384 tokens: root + question + longest candidate) are dropped and
   counted in `train_meta.json`, never truncated.
 
 ## Output
@@ -145,12 +147,14 @@ the adapter into [weights/](../weights/README.md).
 
 ## finetune
 
-Cross-entropy on the targets (softmax over a multiclass question's candidates, a sigmoid per yes/no decision), the
-recipe that produced `weights/qwen35_4b_tree` and, from scratch on all the non-test data with texts up to 16K tokens and
-Jev's probabilities as soft targets, the default `weights/selfjev_4b`: LoRA r64 on the attention and DeltaNet projections, lr 2e-4 with 5%
-warm-up and linear decay, batches of whole states packed to 8,192 tokens × 4 accumulation steps, per-layer activation
-checkpointing. Start from `--init weights/selfjev_4b` to adapt the default model to a new domain, or without `--init`
-to train a fresh adapter. `--base qwen35` uses Qwen3.5-2B for quick runs.
+Cross-entropy on the targets (softmax over a multiclass question's candidates, a sigmoid per yes/no decision): the
+recipe that produced `qwen35_4b_tree` (the previous default, archived) and, from scratch on all the non-test data with
+texts up to 16K tokens and Jev's probabilities as soft targets, the default `weights/selfjev_4b`: LoRA r64 on the
+attention and DeltaNet projections, lr 2e-4 with 5% warm-up and linear decay, batches of whole states packed to 16,384
+tokens × 2 accumulation steps (the defaults; `qwen35_4b_tree` used 8,192 × 4), per-layer activation checkpointing.
+Start from `--init weights/selfjev_4b` to adapt the default model to a new domain, or without `--init` to train a
+fresh adapter (`--lora-r`, default 64). Every run uses Qwen3.5-4B; the Qwen3.5-2B option for quick runs is at the tag
+`archive/pre-cleanup-2026-09-27`.
 
 ## rlcd settings
 
@@ -173,7 +177,7 @@ gradient on proper-scoring-rule rewards ([landscape](landscape.md)), which is wh
 
 ## First test on the real model (2026-09-25): no gain
 
-RLCD from `weights/qwen35_4b_tree` on 4,412 labeled questions it never trained on, against a plain fine-tune on the
+RLCD from `qwen35_4b_tree` (then the default) on 4,412 labeled questions it never trained on, against a plain fine-tune on the
 same questions ([JOURNAL](JOURNAL.md), `reports/rlcd_2026-09-25/`):
 
 | eval2 | accuracy | ECE | confidently wrong (≥ 0.9) |
@@ -194,7 +198,7 @@ same questions ([JOURNAL](JOURNAL.md), `reports/rlcd_2026-09-25/`):
 
 ## Second test (2026-09-26): Jev's probabilities as soft targets, all the data
 
-From `weights/qwen35_4b_tree`, one epoch over 69,528 non-test questions of `data/all.jsonl.gz`, target 0.5 × label +
+From `qwen35_4b_tree`, one epoch over 69,528 non-test questions of `data/all.jsonl.gz`, target 0.5 × label +
 0.5 × Jev (Jev is ≥ 0.9 sure of the label on 77% of them, hedges on 15%, disagrees on 8%). Final checkpoints
 ([JOURNAL](JOURNAL.md), `reports/rlcd_jev_2026-09-26/`):
 
@@ -216,8 +220,8 @@ From `weights/qwen35_4b_tree`, one epoch over 69,528 non-test questions of `data
   9%, at the same accuracy. The dev benchmark is flat.
 - RLCD on the same targets moves less (the KL anchor) and is no better than the fine-tune: A vs B 4 / 10 on eval2
   (p = 0.18). All its rewards peak at the same target as cross-entropy, so the sampling only adds noise.
-- The best-by-validation checkpoint is step 0 for soft-target runs (hard-label loss and Brier penalize hedging): use
-  `adapter_last`.
+- For these runs from a trained adapter, the best-by-validation checkpoint was step 0 (hard-label loss and Brier
+  penalize hedging): use `adapter_last`. From scratch, `selfjev-4b`'s best was step 1,800 of 1,803.
 
 ### C: RLCD with a confident-mistake cost, on top of the fine-tune
 
