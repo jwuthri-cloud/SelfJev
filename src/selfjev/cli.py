@@ -1,4 +1,4 @@
-"""selfjev: serve | classify | eval | calibrate | compare | bench | finetune | rlcd | merge"""
+"""selfjev: serve | classify | eval | calibrate | compare | bench | finetune | rlcd | merge | deploy"""
 
 import argparse
 import json
@@ -103,6 +103,19 @@ def main(argv=None):
     p = sub.add_parser("merge", help="merge a LoRA adapter into Qwen3.5-4B for --engine vllm")
     p.add_argument("--adapter", default=DEFAULT_ADAPTER)
     p.add_argument("--out", required=True)
+    p = sub.add_parser("deploy", help="deploy a server: `selfjev deploy aws up|down|status|list|machines`")
+    dsub = p.add_subparsers(dest="provider", required=True)
+    aws = dsub.add_parser("aws", help="an EC2 GPU box running `selfjev serve` (pip install selfjev[deploy])")
+    aws.add_argument("action", choices=["up", "down", "status", "list", "machines"])
+    aws.add_argument("--name", default="selfjev", help="deployment name (tags, state file)")
+    aws.add_argument("--instance", default="g6.xlarge", help="EC2 type; see `selfjev deploy aws machines`")
+    aws.add_argument("--region", default="us-east-2")
+    aws.add_argument("--allow-cidr", default="0.0.0.0/0", help="who may reach the API port (the API key still applies)")
+    aws.add_argument("--ref", default="master", help="git ref of this repository to deploy")
+    aws.add_argument("--api-key", help="default: a new random key, printed once and kept in the state file")
+    aws.add_argument("--max-hours", type=float, help="terminate the box after this many hours (a cost cap for trials)")
+    aws.add_argument("--ssh", action="store_true", help="also a key pair and port 22 from this machine, for debugging")
+    aws.add_argument("--no-wait", action="store_true", help="return once the instance runs, before the server is ready")
     a = ap.parse_args(argv)
 
     if a.cmd == "serve":
@@ -151,6 +164,19 @@ def main(argv=None):
             extra |= {"samples": a.samples, "sigma": a.sigma, "beta": a.beta}
         train(a.cmd, a.data, a.out, a.val, a.init, a.base, not a.no_options_in_question, a.epochs, a.lr, a.lora_r, a.max_length,
               a.batch_tokens, a.grad_accum, a.eval_every, a.seed, soft_weight=a.soft_weight, **extra)  # fmt: skip
+    elif a.cmd == "deploy":
+        from .deploy import aws
+
+        if a.action == "machines":
+            for k, (gpu, price, use) in aws.MACHINES.items():
+                print(f"{k:13s} {gpu:22s} ${price:.3f}/h  {use}")
+        elif a.action == "up":
+            rec = aws.up(a.name, a.instance, a.region, a.allow_cidr, a.ref, a.api_key, a.max_hours, a.ssh, not a.no_wait)
+            print(json.dumps({k: rec[k] for k in rec if k != "security_group"}, indent=2))
+        elif a.action == "list":
+            print(json.dumps([{k: r[k] for k in ("name", "region", "instance_type", "endpoint")} for r in aws.listing()], indent=2))
+        else:
+            print(json.dumps(getattr(aws, a.action)(a.name), indent=2, default=str))
     elif a.cmd == "merge":
         from .engine.vllm import merge
 

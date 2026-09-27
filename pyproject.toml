@@ -26,6 +26,9 @@ train = [  # `pip install selfjev[train]`: finetune and RLCD
     "torch>=2.14.0",
     "transformers>=5.17.0",
 ]
+deploy = [  # `selfjev deploy aws`
+    "boto3>=1.35",
+]
 gpu = [  # fast Gated DeltaNet kernels on Linux CUDA boxes (the engine falls back to torch without them)
     "einops>=0.8; sys_platform == 'linux'",
     "flash-linear-attention>=0.3; sys_platform == 'linux'",

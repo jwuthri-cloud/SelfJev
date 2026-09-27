@@ -1,0 +1,15 @@
+# docker compose -f deploy/docker-compose.yml up -d     (SELFJEV_API_KEYS from the environment or an .env file)
+services:
+  selfjev:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: selfjev:latest
+    ports: ["8000:8000"]
+    environment:
+      SELFJEV_API_KEYS: ${SELFJEV_API_KEYS:-}
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+    restart: unless-stopped

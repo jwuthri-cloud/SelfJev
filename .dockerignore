@@ -1,0 +1,8 @@
+# the image needs pyproject.toml, uv.lock, README.md, src/ and weights/selfjev_4b only
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!weights/selfjev_4b/
+**/__pycache__
