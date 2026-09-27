@@ -146,7 +146,7 @@ def test_finetune_then_rlcd_end_to_end_on_a_tiny_model(tmp_path, monkeypatch):
     rl = finetune.train("rlcd", str(data), tmp_path / "rl", init=str(tmp_path / "ft/adapter"), batch_tokens=512, grad_accum=2, eval_every=5)
     assert rl["select_by"] == "validation brier" and {"ece", "brier", "confidently_wrong"} <= set(rl["best"])
     assert json.loads((tmp_path / "rl/train_meta.json").read_text())["rlcd"]["reward"] == {"log": 1.0, "brier": 1.0, "spherical": 1.0}
-    for r in rows:  # a teacher's probabilities on every row (scripts/jev_soft_targets.py's format)
+    for r in rows:  # a teacher's probabilities on every row (scripts/train/jev_soft_targets.py's format)
         r["soft"] = 0.6 if r["question"]["type"] == "binary" else {"a": 0.5, "b": 0.3, "c": 0.2}
     data.write_text("".join(json.dumps(r) + "\n" for r in rows))
     for mode in ("finetune", "rlcd"):

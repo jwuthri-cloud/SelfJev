@@ -71,7 +71,6 @@ ignore = [
 extend-immutable-calls = ["fastapi.File", "fastapi.Form", "fastapi.Depends", "fastapi.Query"]
 
 [tool.ruff.lint.per-file-ignores]
-"scripts/*" = ["E402"]  # sys.path setup before local imports
 "tests/*" = ["E402"]
 
 [tool.pytest.ini_options]

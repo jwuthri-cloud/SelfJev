@@ -128,7 +128,7 @@ One question per line, the same format as every eval file in `data/`:
 - `id` and `family` are optional. Several questions about the same `state` share one tree: the text is encoded once.
 - `soft` (optional): a teacher's probabilities, P(yes) for binary or `{candidate id: p}` otherwise. Training then
   targets (1 − `--soft-weight`) × label + `--soft-weight` × `soft` (default 0.5, so the label stays the answer);
-  validation stays on the labels. `scripts/jev_soft_targets.py` writes Jev's, from `data/all.jsonl.gz`.
+  validation stays on the labels. `scripts/train/jev_soft_targets.py` writes Jev's, from `data/all.jsonl.gz`.
 - `--val` gives a validation file; without it, 5% of `--data` (at most 1,000 questions) is held out.
 - Every option is listed in the question text (`options.py`), as for the best model; `--no-options-in-question` turns
   that off. Serve with the same setting.

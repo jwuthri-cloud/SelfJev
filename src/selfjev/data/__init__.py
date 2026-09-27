@@ -3,7 +3,6 @@
 import gzip
 import hashlib
 import json
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -130,9 +129,3 @@ def _check(paths):
                     print(f"{p}:{n}: {e}")
         print(f"{p}: {sum(stats.values())} valid", dict(sorted(stats.items())))
     return bad
-
-
-if __name__ == "__main__":  # python -m selfjev.data check FILE...
-    if sys.argv[1:2] != ["check"] or len(sys.argv) < 3:
-        sys.exit("usage: python -m selfjev.data check FILE.jsonl...")
-    sys.exit(1 if _check(sys.argv[2:]) else 0)

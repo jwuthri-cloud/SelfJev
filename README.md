@@ -84,10 +84,11 @@ src/selfjev/  the default model: qwen35_tree.py (Qwen3.5 tree: training, TreeSer
                    challengers.py (its prompt and forked cache), vllm_qwen35.py; the Qwen3 tree: tree.py, train_tree.py,
                    vllm_tree.py; the stock pairs: model.py, train.py; shared: classify.py, evaluate.py, calibration.py,
                    options.py, server.py, cli.py
-scripts/           data builders and batches, the selfjev-4b recipe (jev_soft_targets.py, jev_soft_box.sh), AWS
-                   (aws_launch.sh), Jev comparison, summaries (ledger, eval2)
-data/              THE dataset: data/all.jsonl.gz (every question + Jev's prediction; scripts/build_all.py),
-                   catalog and growth procedure in data/README.md (new data = a batch, scripts/grow_batch.sh)
+scripts/           data/ (builders, generators, judges, batches: grow_batch.sh), eval/ (ledger, eval2 summary, Jev
+                   comparison, calibration), train/ (the selfjev-4b recipe), aws/ (aws_launch.sh), docs/ (site links);
+                   their shared code is in the package: selfjev.data.catalog, selfjev.data.providers (paid APIs)
+data/              THE dataset: data/all.jsonl.gz (every question + Jev's prediction; scripts/data/build_all.py),
+                   catalog and growth procedure in data/README.md (new data = a batch, scripts/data/grow_batch.sh)
 weights/           the kept adapters (Git LFS)          configs/  training configs of the ledger runs
 reports/           every eval report, benchmark, review and generated summary
 docs/              the docs site: findings, write-ups, ledger and journal

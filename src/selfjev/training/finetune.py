@@ -13,7 +13,7 @@ finetune: cross-entropy on the targets (the log score), the recipe of weights/qw
 rlcd: the same loop with the RLCD objective (selfjev.training.rlcd) instead of cross-entropy.
 
 Soft targets (both modes): a row may carry "soft", a teacher's probabilities (P(yes) for binary, {candidate id: p}
-otherwise; scripts/jev_soft_targets.py writes Jev's). Training then scores against (1 - --soft-weight) x the label +
+otherwise; scripts/train/jev_soft_targets.py writes Jev's). Training then scores against (1 - --soft-weight) x the label +
 --soft-weight x "soft" (default 0.5: the label still decides, the teacher only says how sure to be); validation stays
 on the labels.
 """
@@ -46,7 +46,7 @@ def load_rows(path, options_in_question=True):
         rows = [json.loads(line) for line in f if line.strip()]
     for i, r in enumerate(rows):
         r.setdefault("family", "data")
-        if options_in_question:  # seeded by the row's own id, as scripts/options_in_question.py built data/ova/
+        if options_in_question:  # seeded by the row's own id, as scripts/data/options_in_question.py built data/ova/
             r["question"] = with_options(r["question"], str(r.get("id", i)))
         r["id"] = f"{r.get('id', 'q')}#{i}"  # unique even if the file repeats ids
     return rows
