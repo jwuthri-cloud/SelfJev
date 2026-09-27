@@ -1,163 +1,155 @@
-"""Local HTTP server. Two routes, one model instance:
+"""The HTTP server: Jev's decisions API (docs/api.md) on a selfjev.engine scorer.
 
-  POST /classify               our native schema (see examples/request.json)
-  POST /api/alpha/decisions    request/response *shape* compatible with the decisions API used via OpenRouter
-                               (questions: {id: {type: noul | choice | score, instructions, criteria}}).
+  POST /v1/systemone, /api/alpha/decisions, /v1/decisions   Jev's request and answers, plus `multi`
+  POST /classify                                            the internal schema (examples/request.json)
+  GET  /v1/models, /health, /metrics
 
-Shape compatibility only: this serves our own model, so numbers differ from any hosted service and must not
-be mixed with them. Mapping (ours, documented, not a claim about how the hosted model works):
-  choice  criteria {label: description} -> multiclass over "label: description"; returns choice + probabilities
-  noul    criteria {"true": d1, "false": d2} -> 2-way choice between d1 and d2, noul = P(true);
-          without criteria -> our binary yes/no, noul = p_yes
-  score   criteria [level_0, ..., level_k] -> distribution over ordered levels,
-          score = sum_i p_i * i / k  (expected level scaled to [0, 1])
+Concurrent requests are batched into shared forward passes (selfjev.server.batching). Authentication: Bearer keys from
+SELFJEV_API_KEYS (comma-separated) or `api_keys`; none configured means open, for local self-hosting.
 """
 
-import json
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
+import time
+import uuid
+from contextlib import asynccontextmanager
 
-from ..core.answers import classify, run_meta
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, PlainTextResponse
+
+from ..core.answers import classify_many, run_meta
 from ..core.options import with_options
-from ..core.schemas import ValidationError
+from ..core.schemas import InputTooLong, ValidationError, parse_request
+from ..types import DecisionRequest, DecisionResponse, Usage
+from .batching import Batcher, Overloaded
+from .compat import to_answers, to_native
+from .metrics import Metrics
 
-COMPAT_TYPES = ("noul", "choice", "score")
+JEV_ALIASES = frozenset({"jev-latest", "typesafe/jev-latest", "~typesafe/jev-latest"})  # Jev clients keep their model name
+OPEN_PATHS = frozenset({"/health", "/metrics"})
 
 
-def _label_text(label: str, description: str) -> str:
-    return f"{label.replace('_', ' ')}: {description}"
+class APIException(Exception):
+    def __init__(self, status: int, type: str, message: str, param: str | None = None):
+        super().__init__(message)
+        self.status, self.type, self.message, self.param = status, type, message, param
 
 
-def compat_to_request(body: dict) -> tuple[dict, dict]:
-    """-> (native request, per-question decoding info). Raises ValidationError with a client-facing message."""
-    if not isinstance(body, dict):
-        raise ValidationError("body must be a JSON object")
-    qs = body.get("questions")
-    if not isinstance(qs, dict) or not qs:
-        raise ValidationError("'questions' must be a non-empty object keyed by question id")
-    native, decode = [], {}
-    for qid, q in qs.items():
-        where = f"question '{qid}'"
-        if not isinstance(q, dict) or q.get("type") not in COMPAT_TYPES:
-            raise ValidationError(f"{where}: 'type' must be one of {COMPAT_TYPES}")
-        instr, crit = q.get("instructions"), q.get("criteria")
-        if not isinstance(instr, str) or not instr.strip():
-            raise ValidationError(f"{where}: 'instructions' must be a non-empty string")
-        if q["type"] == "choice":
-            if not isinstance(crit, dict) or len(crit) < 2 or not all(isinstance(v, str) and v.strip() for v in crit.values()):
-                raise ValidationError(f"{where}: choice 'criteria' must map at least 2 labels to non-empty descriptions")
-            native.append(
-                {
-                    "id": qid,
-                    "type": "multiclass",
-                    "instruction": instr,
-                    "candidates": [{"id": k, "description": _label_text(k, v)} for k, v in crit.items()],
-                }
-            )
-        elif q["type"] == "score":
-            if not isinstance(crit, list) or len(crit) < 2 or not all(isinstance(v, str) and v.strip() for v in crit):
-                raise ValidationError(f"{where}: score 'criteria' must be a list of at least 2 ordered level descriptions")
-            if len(set(crit)) != len(crit):
-                raise ValidationError(f"{where}: score levels must be distinct")
-            native.append(
-                {
-                    "id": qid,
-                    "type": "multiclass",
-                    "instruction": instr,
-                    "candidates": [{"id": str(i), "description": v} for i, v in enumerate(crit)],
-                }
-            )
-        elif crit is None:
-            native.append({"id": qid, "type": "binary", "instruction": instr})
+def _error(status: int, type: str, message: str, param: str | None = None, headers: dict | None = None) -> JSONResponse:
+    return JSONResponse({"error": {"type": type, "message": message, "param": param}}, status, headers=headers)
+
+
+def create_app(
+    scorer,
+    calibration=None,
+    options_in_question=True,
+    model_name="selfjev-4b",
+    api_keys=None,
+    max_batch_requests=32,
+    max_wait_ms=5.0,
+    max_queue=256,
+) -> FastAPI:
+    """scorer: TreeServer, Qwen35Scorer or VllmScorer (anything with score_requests and meta)."""
+    keys = set(api_keys if api_keys is not None else filter(None, os.environ.get("SELFJEV_API_KEYS", "").split(",")))
+    bearer = {f"Bearer {k}" for k in keys}
+    metrics = Metrics()
+
+    def run(requests):
+        results, stats = classify_many(scorer, requests, calibration)
+        return list(zip(results, stats.get("tokens_per_request") or [0] * len(results), strict=True))
+
+    batcher = Batcher(run, max_batch_requests, max_wait_ms, max_queue)
+
+    @asynccontextmanager
+    async def lifespan(_):
+        await batcher.start()
+        yield
+        await batcher.stop()
+
+    app = FastAPI(
+        title="selfjev", summary="Jev's decisions API on selfjev-4b", version=__import__("selfjev").__version__, lifespan=lifespan
+    )
+
+    def prepare(native: dict):
+        if options_in_question:  # adapters trained with every option listed in the question need the same transform
+            native = native | {
+                "questions": [with_options(q, str(q.get("id"))) if isinstance(q, dict) else q for q in native.get("questions", [])]
+            }
+        return parse_request(native)
+
+    @app.middleware("http")
+    async def request_id_auth_metrics(request: Request, call_next):
+        rid, t0 = "req_" + uuid.uuid4().hex[:20], time.perf_counter()
+        if bearer and request.url.path not in OPEN_PATHS and request.headers.get("authorization") not in bearer:
+            response = _error(401, "authentication_error", "missing or unknown API key")
         else:
-            if (
-                not isinstance(crit, dict)
-                or set(crit) != {"true", "false"}
-                or not all(isinstance(v, str) and v.strip() for v in crit.values())
-            ):
-                raise ValidationError(f"{where}: noul 'criteria' must be {{'true': ..., 'false': ...}} with non-empty descriptions")
-            native.append(
-                {
-                    "id": qid,
-                    "type": "multiclass",
-                    "instruction": instr,
-                    "candidates": [{"id": "true", "description": crit["true"]}, {"id": "false", "description": crit["false"]}],
-                }
-            )
-        decode[qid] = (q["type"], crit)
-    return {"state": body.get("state"), "questions": native}, decode
+            response = await call_next(request)
+        response.headers["x-request-id"] = rid
+        metrics.observe(request.url.path, response.status_code, time.perf_counter() - t0)
+        return response
 
+    @app.exception_handler(APIException)
+    async def _api(_, e: APIException):
+        return _error(e.status, e.type, e.message, e.param)
 
-def answers_from(result: dict, decode: dict) -> dict:
-    out = {}
-    for r in result["questions"]:
-        kind, crit = decode[r["id"]]
-        if kind == "noul":
-            p = r["p_yes"] if r["type"] == "binary" else next(c["probability"] for c in r["candidates"] if c["id"] == "true")
-            out[r["id"]] = {"noul": p}
-        elif kind == "choice":
-            out[r["id"]] = {"choice": r["selected"], "probabilities": {c["id"]: c["probability"] for c in r["candidates"]}}
-        else:
-            probs = [c["probability"] for c in r["candidates"]]
-            out[r["id"]] = {"score": sum(i * p for i, p in enumerate(probs)) / (len(probs) - 1), "probabilities": dict(zip(crit, probs))}
-    return out
+    @app.exception_handler(RequestValidationError)
+    async def _schema(_, e: RequestValidationError):
+        first = e.errors()[0]
+        loc = [str(x) for x in first["loc"][1:] if x not in ("noul", "choice", "score", "multi")]  # drop "body" and the union tag
+        return _error(422, "invalid_request_error", first["msg"], ".".join(loc) or None)
 
+    @app.exception_handler(ValidationError)
+    async def _internal_schema(_, e: ValidationError):
+        return _error(422, "invalid_request_error", str(e))
 
-def make_handler(scorer, calibration=None, options_in_question=False):
-    def prepare(req):  # adapters trained on data/ova/ see every option in the question text (options.py)
-        if not options_in_question or not isinstance(req, dict) or not isinstance(req.get("questions"), list):
-            return req
-        return req | {
-            "questions": [
-                with_options(q, str(q.get("id")))
-                if isinstance(q, dict) and q.get("type") in ("multiclass", "multilabel") and isinstance(q.get("candidates"), list)
-                else q
-                for q in req["questions"]
-            ]
+    @app.exception_handler(InputTooLong)
+    async def _too_long(_, e: InputTooLong):
+        return _error(422, "invalid_request_error", str(e), "state")
+
+    @app.exception_handler(Overloaded)
+    async def _overloaded(_, e: Overloaded):
+        return _error(529, "overloaded_error", f"server busy ({e}); retry with backoff", headers={"retry-after": "1"})
+
+    async def decisions(body: DecisionRequest) -> DecisionResponse:
+        if body.model != model_name and body.model not in JEV_ALIASES:
+            raise APIException(404, "not_found_error", f"unknown model '{body.model}'; this server has '{model_name}'", "model")
+        results, tokens = await batcher.submit(prepare(to_native(body)))
+        metrics.add_usage(tokens, len(body.questions))
+        return DecisionResponse(
+            id="dec_" + uuid.uuid4().hex[:24], model=model_name, answers=to_answers(body, results), usage=Usage(input_tokens=tokens)
+        )
+
+    for path in ("/v1/systemone", "/api/alpha/decisions", "/v1/decisions"):
+        app.post(path, response_model=DecisionResponse, response_model_exclude_none=True, tags=["decisions"])(decisions)
+
+    @app.post("/classify", tags=["internal"])
+    async def classify(request: Request):
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise APIException(422, "invalid_request_error", "body must be a JSON object")
+        results, tokens = await batcher.submit(prepare(body))
+        return {"questions": results, "meta": run_meta(scorer, calibration) | {"input_tokens": tokens}}
+
+    @app.get("/v1/models", tags=["meta"])
+    async def models():
+        keep = ("model", "revision", "adapter", "adapter_sha256", "prompt", "max_length")
+        return {
+            "object": "list",
+            "data": [{"id": model_name, "object": "model", "owned_by": "selfjev", "meta": {k: scorer.meta.get(k) for k in keep}}],
         }
 
-    lock = threading.Lock()  # ponytail: one model, one request at a time; a batching queue if throughput matters
+    @app.get("/health", tags=["meta"])
+    async def health():
+        return {"status": "ok", "model": model_name, "queue": batcher.depth}
 
-    class Handler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"  # keep-alive: every response sets Content-Length
+    @app.get("/metrics", tags=["meta"], response_class=PlainTextResponse)
+    async def prometheus():
+        return metrics.render(batcher.depth)
 
-        def _send(self, code, obj):
-            data = json.dumps(obj).encode()
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-
-        def do_POST(self):
-            try:
-                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"null")
-                if self.path == "/classify":
-                    with lock:
-                        return self._send(200, classify(scorer, prepare(body), calibration))
-                if self.path == "/api/alpha/decisions":
-                    req, decode = compat_to_request(body)
-                    with lock:
-                        result = classify(scorer, prepare(req), calibration)
-                    meta = result["meta"] | {"note": "shape-compatible endpoint serving selfjev, not the hosted model"}
-                    return self._send(
-                        200, {"model": f"selfjev/{run_meta(scorer)['model']}", "answers": answers_from(result, decode), "meta": meta}
-                    )
-                self._send(404, {"error": {"message": f"unknown route {self.path}"}})
-            except (ValidationError, json.JSONDecodeError) as e:
-                self._send(400, {"error": {"message": str(e)}})
-            except ValueError as e:  # InputTooLong and friends
-                self._send(422, {"error": {"message": str(e)}})
-            except Exception as e:  # never leave the client with an empty reply
-                self._send(500, {"error": {"message": f"{type(e).__name__}: {e}"}})
-
-        def log_message(self, *args):
-            pass
-
-    return Handler
+    return app
 
 
-def serve(scorer, host="127.0.0.1", port=8000, calibration=None, options_in_question=False):
-    httpd = ThreadingHTTPServer((host, port), make_handler(scorer, calibration, options_in_question))
-    print(f"serving on http://{host}:{httpd.server_port}  (POST /classify, POST /api/alpha/decisions)", flush=True)
-    httpd.serve_forever()
+def serve(scorer, host="127.0.0.1", port=8000, calibration=None, options_in_question=True, **kw):
+    import uvicorn
+
+    uvicorn.run(create_app(scorer, calibration, options_in_question, **kw), host=host, port=port)

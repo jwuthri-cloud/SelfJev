@@ -1,16 +1,34 @@
 [project]
 name = "selfjev"
 version = "0.2.0"
-description = "Instruction-conditioned binary/multiclass/multilabel decisions with open Qwen models (default: selfjev-4b, Qwen3.5-4B + LoRA, shared-prefix tree)"
+description = "selfjev: an open decisions model (selfjev-4b) with Jev's API. SDK, server, fine-tuning and RLCD."
 authors = [
     { name = "julien-connectly", email = "julien@connectly.ai" }
 ]
 requires-python = ">=3.12"
-dependencies = [
+dependencies = [  # the SDK: `pip install selfjev`
+    "httpx>=0.28",
+    "pydantic>=2.10",
+]
+
+[project.optional-dependencies]
+serve = [  # `pip install selfjev[serve]`: the engine and the HTTP server (a CUDA GPU for real use)
+    "fastapi>=0.115",
     "peft>=0.21.0",
     "safetensors>=0.8.0",
     "torch>=2.14.0",
     "transformers>=5.17.0",
+    "uvicorn[standard]>=0.32",
+]
+train = [  # `pip install selfjev[train]`: finetune and RLCD
+    "peft>=0.21.0",
+    "safetensors>=0.8.0",
+    "torch>=2.14.0",
+    "transformers>=5.17.0",
+]
+gpu = [  # fast Gated DeltaNet kernels on Linux CUDA boxes (the engine falls back to torch without them)
+    "einops>=0.8; sys_platform == 'linux'",
+    "flash-linear-attention>=0.3; sys_platform == 'linux'",
 ]
 
 [build-system]
@@ -22,6 +40,7 @@ data = [
     "datasets>=5.0.1",
 ]
 dev = [
+    "selfjev[serve,train]",
     "pre-commit>=4.3.0",
     "pytest>=9.1.1",
     "ruff==0.16.9",
@@ -50,3 +69,4 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]  # starlette notice, not ours

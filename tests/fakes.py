@@ -19,4 +19,7 @@ class FakeScorer:
         per = [
             [[self.f(pair_text(r.state, q, c)) for c in q.candidates] or [self.f(pair_text(r.state, q))] for q in r.questions] for r in reqs
         ]
-        return per, {"pairs": sum(len(qs) for r in per for qs in r)}
+        return per, {
+            "pairs": sum(len(qs) for r in per for qs in r),
+            "tokens_per_request": [len(r.state) // 4 + 10 * len(r.questions) for r in reqs],
+        }

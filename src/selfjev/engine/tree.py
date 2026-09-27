@@ -255,6 +255,7 @@ class TreeServer:
             "pairs": sum(map(sum, sizes)),
             "batches": len(batches),
             "input_tokens": sum(len(t["ids"]) for t in trees),
+            "tokens_per_request": [len(t["ids"]) for t in trees],  # text once + each question + each candidate
             "padded_tokens": sum(len(b) * max(len(trees[j]["ids"]) for j in b) for b in batches),
             "tokenize_ms": 1e3 * (t1 - t0),
             "model_ms": 1e3 * (t2 - t1),

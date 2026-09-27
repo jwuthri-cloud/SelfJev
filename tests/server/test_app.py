@@ -1,21 +1,21 @@
-"""Decisions-API shape compatibility, with a fake scorer (mapping and HTTP plumbing only, no model quality)."""
+"""The HTTP server with a fake scorer: Jev's request/answer shape, errors, auth, batching isolation, metadata routes.
+No model quality is tested here."""
 
+import asyncio
 import json
-import threading
-import urllib.error
-import urllib.request
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
-from selfjev.core.schemas import ValidationError
-from selfjev.server.app import answers_from, compat_to_request, make_handler
+from selfjev.core.schemas import InputTooLong
+from selfjev.server.app import create_app
+from selfjev.server.batching import Batcher
 from tests.fakes import FakeScorer
 
-EXAMPLE = {  # the request shape from the OpenRouter decisions example
-    "model": "any-model-id",
-    "state": "Help! My payouts have been failing for 3 days.",
+EXAMPLE = {  # Jev's documented request shape, plus a multi question
+    "model": "selfjev-4b",
+    "state": "Help! My payouts have been failing for 3 days and the invoice was charged twice.",
     "questions": {
         "is_urgent": {
             "type": "noul",
@@ -25,11 +25,7 @@ EXAMPLE = {  # the request shape from the OpenRouter decisions example
         "department": {
             "type": "choice",
             "instructions": "Which team should handle this?",
-            "criteria": {
-                "billing": "Payments, invoicing, refunds",
-                "technical": "Bugs, outages, integrations",
-                "sales": "Pricing, upgrades, new accounts",
-            },
+            "criteria": {"billing": "Payments, invoicing, refunds", "technical": "Bugs, outages, integrations", "sales": None},
         },
         "frustration": {
             "type": "score",
@@ -37,81 +33,141 @@ EXAMPLE = {  # the request shape from the OpenRouter decisions example
             "criteria": ["Calm", "Frustrated", "Very angry"],
         },
         "plain": {"type": "noul", "instructions": "Is money involved?"},
+        "topics": {
+            "type": "multi",
+            "instructions": "Which topics?",
+            "criteria": {"payouts": "payouts", "invoice": "an invoice", "login": None},
+        },
     },
 }
 
 
-def test_example_request_maps_and_answers_have_the_documented_shape():
-    from selfjev.core.answers import classify
+def client(scorer=None, **kw):
+    return TestClient(create_app(scorer or FakeScorer(), **kw))
 
-    req, decode = compat_to_request(EXAMPLE)
-    a = answers_from(classify(FakeScorer(), req), decode)
+
+def test_answers_have_jevs_shape():
+    with client() as c:
+        r = c.post("/v1/systemone", json=EXAMPLE)
+    assert r.status_code == 200 and r.headers["x-request-id"].startswith("req_")
+    body = r.json()
+    a = body["answers"]
+    assert body["id"].startswith("dec_") and body["model"] == "selfjev-4b" and body["usage"]["input_tokens"] > 0
     assert list(a) == list(EXAMPLE["questions"])
-    assert 0 <= a["is_urgent"]["noul"] <= 1 and 0 <= a["plain"]["noul"] <= 1
-    assert a["department"]["choice"] in EXAMPLE["questions"]["department"]["criteria"]
-    assert sum(a["department"]["probabilities"].values()) == pytest.approx(1)
-    probs = a["frustration"]["probabilities"]
-    assert list(probs) == ["Calm", "Frustrated", "Very angry"] and sum(probs.values()) == pytest.approx(1)
-    assert a["frustration"]["score"] == pytest.approx(probs["Frustrated"] * 0.5 + probs["Very angry"])
+    assert set(a["is_urgent"]) == {"type", "noul"} and 0 <= a["is_urgent"]["noul"] <= 1 and 0 <= a["plain"]["noul"] <= 1
+    dept = a["department"]
+    assert dept["choice"] in EXAMPLE["questions"]["department"]["criteria"] and sum(dept["probabilities"].values()) == pytest.approx(1)
+    assert dept["confidence"] == pytest.approx((3 * max(dept["probabilities"].values()) - 1) / 2)
+    score = a["frustration"]
+    p = [score["probabilities"][k] for k in ("0", "1", "2")]
+    assert score["score"] == pytest.approx(p[1] + 2 * p[2]) and score["legend"] == {"0": "Calm", "1": "Frustrated", "2": "Very angry"}
+    multi = a["topics"]
+    assert set(multi["multi"]) <= {"payouts", "invoice", "login"}
+    assert multi["multi"] == [k for k, v in multi["probabilities"].items() if v >= 0.5]
+
+
+def test_openrouter_and_v1_paths_give_the_same_answers():
+    with client() as c:
+        answers = [c.post(p, json=EXAMPLE).json()["answers"] for p in ("/v1/systemone", "/api/alpha/decisions", "/v1/decisions")]
+    assert answers[0] == answers[1] == answers[2]
 
 
 @pytest.mark.parametrize(
-    "q",
+    "mutate,param",
     [
-        {"type": "ordinal", "instructions": "x", "criteria": ["a", "b"]},
-        {"type": "choice", "instructions": "x", "criteria": {"only": "one"}},
-        {"type": "score", "instructions": "x", "criteria": ["same", "same"]},
-        {"type": "noul", "instructions": "x", "criteria": {"yes": "a", "no": "b"}},
-        {"type": "choice", "instructions": " ", "criteria": {"a": "x", "b": "y"}},
+        (lambda b: b["questions"]["department"].update(criteria={"only": None}), "questions.department.criteria"),
+        (lambda b: b["questions"]["frustration"].update(criteria=["one"]), "questions.frustration.criteria"),
+        (lambda b: b["questions"]["plain"].update(type="ordinal"), "questions.plain"),
+        (lambda b: b["questions"]["plain"].update(instructions="  "), "questions.plain.instructions"),
+        (lambda b: b.pop("state"), "state"),
+        (lambda b: b.update(questions={}), None),
     ],
 )
-def test_invalid_compat_questions(q):
-    with pytest.raises(ValidationError):
-        compat_to_request({"state": "s", "questions": {"q": q}})
+def test_invalid_requests_are_422_with_the_offending_field(mutate, param):
+    body = json.loads(json.dumps(EXAMPLE))
+    mutate(body)
+    with client() as c:
+        r = c.post("/v1/systemone", json=body)
+    assert r.status_code == 422 and r.json()["error"]["type"] == "invalid_request_error"
+    if param:
+        assert r.json()["error"]["param"].startswith(param)
 
 
-def test_http_routes():
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(FakeScorer()))
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{httpd.server_port}"
-
-    def post(path, body):
-        req = urllib.request.Request(base + path, json.dumps(body).encode(), {"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req) as r:
-                return r.status, json.loads(r.read())
-        except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read())
-
-    try:
-        code, body = post("/api/alpha/decisions", EXAMPLE)
-        assert code == 200 and set(body["answers"]) == set(EXAMPLE["questions"]) and "not the hosted model" in body["meta"]["note"]
-        code, body = post("/classify", json.loads(Path("examples/request.json").read_text()))
-        assert code == 200 and [q["id"] for q in body["questions"]] == ["urgent", "team", "tags"]
-        assert post("/api/alpha/decisions", {"state": "", "questions": EXAMPLE["questions"]})[0] == 400
-        assert post("/nope", {})[0] == 404
-    finally:
-        httpd.shutdown()
+def test_model_names():
+    with client() as c:
+        assert c.post("/v1/systemone", json=EXAMPLE | {"model": "jev-latest"}).status_code == 200  # Jev clients work unchanged
+        r = c.post("/v1/systemone", json=EXAMPLE | {"model": "gpt-99"})
+    assert r.status_code == 404 and r.json()["error"] == {
+        "type": "not_found_error",
+        "message": r.json()["error"]["message"],
+        "param": "model",
+    }
 
 
-def test_options_in_question_reaches_the_scorer():
-    """--options-in-question: choice/score questions get their option list in the instruction; yes/no ones do not."""
+def test_api_keys():
+    with client(api_keys=["secret"]) as c:
+        assert c.post("/v1/systemone", json=EXAMPLE).status_code == 401
+        assert (
+            c.post("/v1/systemone", json=EXAMPLE, headers={"Authorization": "Bearer nope"}).json()["error"]["type"]
+            == "authentication_error"
+        )
+        assert c.post("/v1/systemone", json=EXAMPLE, headers={"Authorization": "Bearer secret"}).status_code == 200
+        assert c.get("/health").status_code == 200  # load balancers check it without a key
+
+
+def test_option_lists_reach_the_scorer_and_objects_are_serialized():
     seen = []
 
     class Recording(FakeScorer):
         def score_requests(self, reqs):
-            seen.extend(q.instruction for r in reqs for q in r.questions)
+            seen.extend((r.state, q.instruction) for r in reqs for q in r.questions)
             return super().score_requests(reqs)
 
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Recording(), options_in_question=True))
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    try:
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{httpd.server_port}/api/alpha/decisions", json.dumps(EXAMPLE).encode(), {"Content-Type": "application/json"}
-        )
-        json.loads(urllib.request.urlopen(req).read())
-    finally:
-        httpd.shutdown()
-    dept = [t for t in seen if "Which team should handle this?" in t]
-    assert dept and all("Options (exactly one is correct):" in t and "- billing: Payments, invoicing, refunds" in t for t in dept)
-    assert not any("Options (" in t for t in seen if "Is money involved?" in t)
+    with client(Recording()) as c:
+        c.post("/v1/systemone", json=EXAMPLE | {"state": {"ticket": 4411, "text": "charged twice"}})
+    dept = [i for _, i in seen if i.startswith("Which team")]
+    assert dept and "Options (exactly one is correct):" in dept[0] and "- billing: Payments, invoicing, refunds" in dept[0]
+    assert not any("Options (" in i for _, i in seen if i.startswith("Is money"))
+    assert json.loads(seen[0][0]) == {"ticket": 4411, "text": "charged twice"}
+
+
+def test_too_long_input_is_422_and_a_full_queue_is_529():
+    class Short(FakeScorer):
+        def score_requests(self, reqs):
+            raise InputTooLong([(0, 40000)], 32768)
+
+    with client(Short()) as c:
+        r = c.post("/v1/systemone", json=EXAMPLE)
+    assert r.status_code == 422 and "32768" in r.json()["error"]["message"]
+    with client(max_queue=0) as c:
+        r = c.post("/v1/systemone", json=EXAMPLE)
+    assert r.status_code == 529 and r.headers["retry-after"] == "1" and r.json()["error"]["type"] == "overloaded_error"
+
+
+def test_internal_schema_route_models_health_metrics():
+    req = json.loads(Path("examples/request.json").read_text())
+    with client() as c:
+        r = c.post("/classify", json=req)
+        assert r.status_code == 200 and [q["id"] for q in r.json()["questions"]] == [q["id"] for q in req["questions"]]
+        assert c.get("/v1/models").json()["data"][0]["id"] == "selfjev-4b"
+        assert c.get("/health").json()["status"] == "ok"
+        text = c.get("/metrics").text
+    assert 'selfjev_requests_total{route="/classify",status="200"} 1' in text and "selfjev_queue_depth 0" in text
+
+
+def test_batcher_isolates_a_failing_request():
+    def fn(items):
+        if "bad" in items:
+            raise ValueError("bad item")
+        return [i.upper() for i in items]
+
+    async def main():
+        b = Batcher(fn, max_batch_requests=8, max_wait_ms=50)
+        await b.start()
+        try:
+            return await asyncio.gather(b.submit("good"), b.submit("bad"), b.submit("fine"), return_exceptions=True)
+        finally:
+            await b.stop()
+
+    good, bad, fine = asyncio.run(main())
+    assert good == "GOOD" and fine == "FINE" and isinstance(bad, ValueError)

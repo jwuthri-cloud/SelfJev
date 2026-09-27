@@ -131,6 +131,7 @@ class VllmScorer:
             "pairs": len(prompts),
             "batches": 1,
             "input_tokens": sum(map(len, roots)) + sum(len(b) for es in entries for e in es for b in e["branches"]),
+            "tokens_per_request": [len(es[0]["root"]) + sum(len(b) for e in es for b in e["branches"]) for es in entries],
             "padded_tokens": sum(len(p["prompt_token_ids"]) for p in prompts),  # submitted before prefix-cache hits
             "cached_tokens": sum(cached) if None not in cached else None,
             "tokenize_ms": 1e3 * (t1 - t0),
