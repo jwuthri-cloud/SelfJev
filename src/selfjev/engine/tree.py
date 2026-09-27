@@ -212,18 +212,36 @@ def score(sc, trees, grad_checkpoint=True):
 
 class TreeServer:
     """Serving with the training tree, forward only: per request one tree (text once, each question once, then each
-    candidate's own tokens), LoRA merged into the weights. Requests are packed by length under max_batch_tokens."""
+    candidate's own tokens). Requests are packed by length under max_batch_tokens.
 
-    def __init__(self, adapter, max_length=32768, max_batch_tokens=16384):
+    merge=True folds the LoRA into the weights (fastest, one model). merge=False keeps it as a PEFT adapter so more can
+    be loaded next to it (load_adapter) and chosen per batch (set_adapter): the server does this for fine-tuned models.
+    """
+
+    def __init__(self, adapter, max_length=32768, max_batch_tokens=16384, merge=True):
         from .qwen35 import Qwen35Scorer
 
         self.sc = Qwen35Scorer("qwen35_4b", adapter=adapter, max_length=max_length)
-        self.sc.model = self.sc.model.merge_and_unload()
+        if merge:
+            self.sc.model = self.sc.model.merge_and_unload()
+        self.merged, self.adapters = merge, {"default": str(adapter)}
         self.tokenizer, self.device, self.max_batch_tokens = self.sc.tokenizer, self.sc.device, max_batch_tokens
         self.meta = self.sc.meta | {
-            "adapter_merged": True,
+            "adapter_merged": merge,
             "architecture": "shared-prefix tree, forward only: text once per request, each question once, then each candidate",
         }
+
+    def load_adapter(self, name: str, path: str):
+        """Another LoRA on the same base weights (needs merge=False)."""
+        if self.merged:
+            raise RuntimeError("TreeServer(merge=True) serves one adapter; use merge=False to load more")
+        if name not in self.adapters:
+            self.sc.model.load_adapter(path, adapter_name=name)
+            self.adapters[name] = str(path)
+
+    def set_adapter(self, name: str = "default"):
+        if not self.merged:
+            self.sc.model.set_adapter(name)
 
     @torch.inference_mode()
     def score_requests(self, reqs):

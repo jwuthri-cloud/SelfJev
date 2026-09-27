@@ -16,7 +16,7 @@ from .client import (
     SelfJev,
     SelfJevError,
 )
-from .types import Choice, DecisionRequest, DecisionResponse, Multi, Noul, Score
+from .types import Choice, DecisionRequest, DecisionResponse, FileObject, FineTuningJob, JobEvent, Multi, Noul, Score, TrainingRow
 
 __version__ = "0.2.0"
 __all__ = [
@@ -27,7 +27,10 @@ __all__ = [
     "Choice",
     "DecisionRequest",
     "DecisionResponse",
+    "FileObject",
+    "FineTuningJob",
     "InvalidRequestError",
+    "JobEvent",
     "Multi",
     "NotFoundError",
     "Noul",
@@ -36,4 +39,5 @@ __all__ = [
     "Score",
     "SelfJev",
     "SelfJevError",
+    "TrainingRow",
 ]

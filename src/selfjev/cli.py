@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -17,7 +18,7 @@ def _scorer(a):
         return VllmScorer(a.model_dir, max_length=a.max_length)
     from .engine.tree import TreeServer
 
-    return TreeServer(a.adapter, max_length=a.max_length, max_batch_tokens=a.max_batch_tokens)
+    return TreeServer(a.adapter, max_length=a.max_length, max_batch_tokens=a.max_batch_tokens, merge=not getattr(a, "fine_tuning", False))
 
 
 def _calibration(a, scorer):
@@ -75,6 +76,12 @@ def main(argv=None):
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--no-options-in-question", action="store_true", help="for adapters trained without the option list")
+    p.add_argument(
+        "--fine-tuning",
+        action="store_true",
+        help="also serve /v1/files and /v1/fine_tuning/jobs (LoRA unmerged; training needs GPU memory next to serving, e.g. a 48 GB card)",
+    )
+    p.add_argument("--home", default=os.environ.get("SELFJEV_HOME", str(Path.home() / ".selfjev" / "server")), help="fine-tuning state")
     p = sub.add_parser("classify", help="answer one request in the internal schema (a JSON file, or - for stdin)")
     p.add_argument("request")
     _model_args(p)
@@ -122,7 +129,8 @@ def main(argv=None):
         from .server.app import serve
 
         scorer = _scorer(a)
-        serve(scorer, a.host, a.port, _calibration(a, scorer), not a.no_options_in_question)
+        home = Path(a.home) if a.fine_tuning else None
+        serve(scorer, a.host, a.port, _calibration(a, scorer), not a.no_options_in_question, fine_tuning_home=home, init_adapter=a.adapter)
     elif a.cmd == "classify":
         from .core.answers import classify
 

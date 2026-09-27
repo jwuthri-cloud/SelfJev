@@ -3,15 +3,18 @@
   POST /v1/systemone, /api/alpha/decisions, /v1/decisions   Jev's request and answers, plus `multi`
   POST /classify                                            the internal schema (examples/request.json)
   GET  /v1/models, /health, /metrics
+  /v1/files, /v1/fine_tuning/jobs[...]                      fine-tuning and RLCD (with fine_tuning_home; server.finetuning)
 
 Concurrent requests are batched into shared forward passes (selfjev.server.batching). Authentication: Bearer keys from
 SELFJEV_API_KEYS (comma-separated) or `api_keys`; none configured means open, for local self-hosting.
 """
 
 import os
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -23,6 +26,7 @@ from ..core.schemas import InputTooLong, ValidationError, parse_request
 from ..types import DecisionRequest, DecisionResponse, Usage
 from .batching import Batcher, Overloaded
 from .compat import to_answers, to_native
+from .finetuning import FineTuningError, Jobs, Store, router
 from .metrics import Metrics
 
 JEV_ALIASES = frozenset({"jev-latest", "typesafe/jev-latest", "~typesafe/jev-latest"})  # Jev clients keep their model name
@@ -48,15 +52,36 @@ def create_app(
     max_batch_requests=32,
     max_wait_ms=5.0,
     max_queue=256,
+    fine_tuning_home: Path | None = None,
+    init_adapter: str | None = None,
 ) -> FastAPI:
-    """scorer: TreeServer, Qwen35Scorer or VllmScorer (anything with score_requests and meta)."""
+    """scorer: TreeServer, Qwen35Scorer or VllmScorer (anything with score_requests and meta). fine_tuning_home turns on
+    the fine-tuning routes; their models need a scorer that can load adapters (TreeServer(merge=False))."""
     keys = set(api_keys if api_keys is not None else filter(None, os.environ.get("SELFJEV_API_KEYS", "").split(",")))
     bearer = {f"Bearer {k}" for k in keys}
     metrics = Metrics()
 
-    def run(requests):
-        results, stats = classify_many(scorer, requests, calibration)
-        return list(zip(results, stats.get("tokens_per_request") or [0] * len(results), strict=True))
+    served, model_lock = {model_name: "default"}, threading.Lock()  # model id -> adapter name
+
+    def run(items):
+        """items: (adapter, request) pairs; each adapter's requests share one scorer call."""
+        out = [None] * len(items)
+        with model_lock:
+            for adapter in dict.fromkeys(a for a, _ in items):
+                idx = [i for i, (a, _) in enumerate(items) if a == adapter]
+                if hasattr(scorer, "set_adapter"):
+                    scorer.set_adapter(adapter)
+                results, stats = classify_many(scorer, [items[i][1] for i in idx], calibration)
+                for i, res, tok in zip(idx, results, stats.get("tokens_per_request") or [0] * len(idx), strict=True):
+                    out[i] = (res, tok)
+            if hasattr(scorer, "set_adapter"):
+                scorer.set_adapter("default")
+        return out
+
+    def register(name: str, path: str):  # a fine-tuning job finished: serve its adapter next to the base one
+        with model_lock:
+            scorer.load_adapter(name, path)
+        served[name] = name
 
     batcher = Batcher(run, max_batch_requests, max_wait_ms, max_queue)
 
@@ -106,17 +131,22 @@ def create_app(
     async def _too_long(_, e: InputTooLong):
         return _error(422, "invalid_request_error", str(e), "state")
 
+    @app.exception_handler(FineTuningError)
+    async def _fine_tuning(_, e: FineTuningError):
+        return _error(e.status, e.type, e.message, e.param)
+
     @app.exception_handler(Overloaded)
     async def _overloaded(_, e: Overloaded):
         return _error(529, "overloaded_error", f"server busy ({e}); retry with backoff", headers={"retry-after": "1"})
 
     async def decisions(body: DecisionRequest) -> DecisionResponse:
-        if body.model != model_name and body.model not in JEV_ALIASES:
-            raise APIException(404, "not_found_error", f"unknown model '{body.model}'; this server has '{model_name}'", "model")
-        results, tokens = await batcher.submit(prepare(to_native(body)))
+        model = model_name if body.model in JEV_ALIASES else body.model
+        if model not in served:
+            raise APIException(404, "not_found_error", f"unknown model '{body.model}'; this server has {sorted(served)}", "model")
+        results, tokens = await batcher.submit((served[model], prepare(to_native(body))))
         metrics.add_usage(tokens, len(body.questions))
         return DecisionResponse(
-            id="dec_" + uuid.uuid4().hex[:24], model=model_name, answers=to_answers(body, results), usage=Usage(input_tokens=tokens)
+            id="dec_" + uuid.uuid4().hex[:24], model=model, answers=to_answers(body, results), usage=Usage(input_tokens=tokens)
         )
 
     for path in ("/v1/systemone", "/api/alpha/decisions", "/v1/decisions"):
@@ -127,16 +157,14 @@ def create_app(
         body = await request.json()
         if not isinstance(body, dict):
             raise APIException(422, "invalid_request_error", "body must be a JSON object")
-        results, tokens = await batcher.submit(prepare(body))
+        results, tokens = await batcher.submit(("default", prepare(body)))
         return {"questions": results, "meta": run_meta(scorer, calibration) | {"input_tokens": tokens}}
 
     @app.get("/v1/models", tags=["meta"])
     async def models():
         keep = ("model", "revision", "adapter", "adapter_sha256", "prompt", "max_length")
-        return {
-            "object": "list",
-            "data": [{"id": model_name, "object": "model", "owned_by": "selfjev", "meta": {k: scorer.meta.get(k) for k in keep}}],
-        }
+        meta = {k: scorer.meta.get(k) for k in keep}
+        return {"object": "list", "data": [{"id": m, "object": "model", "owned_by": "selfjev", "meta": meta} for m in served]}
 
     @app.get("/health", tags=["meta"])
     async def health():
@@ -146,6 +174,10 @@ def create_app(
     async def prometheus():
         return metrics.render(batcher.depth)
 
+    if fine_tuning_home is not None:
+        store = Store(Path(fine_tuning_home))
+        jobs = Jobs(Path(fine_tuning_home), store, model_name, init_adapter or scorer.meta.get("adapter"), register)
+        app.include_router(router(store, jobs))
     return app
 
 

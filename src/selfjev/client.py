@@ -11,6 +11,12 @@ against Jev itself (TypeSafe's /v1/systemone, or OpenRouter with path="/api/alph
     )
     res.choices["team"].choice, res.nouls["refund"].noul
 
+Fine-tuning (a selfjev server started with --fine-tuning; docs/api.md "Fine-tuning"):
+
+    f = client.upload_file("train.jsonl")                         # one decisions request + its answers per line
+    job = client.create_fine_tuning_job(f.id, method="rlcd", suffix="acme")
+    client.fine_tuning_job(job.id).fine_tuned_model               # then system_one(..., model=that name)
+
 Needs only httpx and pydantic. Retries 429, 529, 5xx and connection errors with exponential backoff (Retry-After wins).
 """
 
@@ -18,17 +24,29 @@ import asyncio
 import os
 import random
 import time
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 import httpx
 from pydantic import TypeAdapter
 
-from .types import DecisionRequest, DecisionResponse, ErrorResponse, Question
+from .types import (
+    DecisionRequest,
+    DecisionResponse,
+    ErrorResponse,
+    FileObject,
+    FineTuningJob,
+    FineTuningJobRequest,
+    JobEvent,
+    Question,
+)
 
 DEFAULT_BASE_URL = "http://localhost:8000"
 DEFAULT_PATH = "/v1/systemone"
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504, 529})
 _QUESTIONS = TypeAdapter(dict[str, Question])
+_JOBS, _EVENTS = TypeAdapter(list[FineTuningJob]), TypeAdapter(list[JobEvent])
+JOBS = "/v1/fine_tuning/jobs"
 
 
 class SelfJevError(Exception):
@@ -98,7 +116,7 @@ class _Base:
         self.timeout, self.max_retries, self.path = timeout, max_retries, path
 
     def _headers(self) -> dict[str, str]:
-        h = {"Content-Type": "application/json", "User-Agent": "selfjev-python"}
+        h = {"User-Agent": "selfjev-python"}  # httpx sets Content-Type: JSON bodies and multipart uploads differ
         if self.api_key:
             h["Authorization"] = f"Bearer {self.api_key}"
         return h
@@ -106,6 +124,18 @@ class _Base:
     def _body(self, state, questions, model, extra_body) -> dict:
         req = DecisionRequest(model=model or self.model, state=state, questions=_QUESTIONS.validate_python(questions))
         return req.model_dump(mode="json", exclude_none=True) | (extra_body or {})
+
+    @staticmethod
+    def _upload(path, purpose) -> dict:  # bytes, not a file handle, so a retry resends the whole file
+        return {"files": {"file": (Path(path).name, Path(path).read_bytes())}, "data": {"purpose": purpose}}
+
+    @staticmethod
+    def _job(training_file, method, hyperparameters, validation_file, suffix, model) -> dict:
+        req = FineTuningJobRequest.model_validate(
+            {"training_file": training_file, "validation_file": validation_file, "suffix": suffix,
+             "method": {"type": method, "hyperparameters": hyperparameters or {}}} | ({"model": model} if model else {})
+        )  # fmt: skip
+        return {"json": req.model_dump(mode="json", exclude_none=True)}
 
 
 class SelfJev(_Base):
@@ -121,6 +151,35 @@ class SelfJev(_Base):
 
     def models(self) -> list[dict]:
         return self._request("GET", "/v1/models").json()["data"]
+
+    def upload_file(self, path: str | Path, purpose: str = "fine-tune") -> FileObject:
+        """Upload a fine-tuning file: JSONL, one {"state", "questions", "answers"} object per line."""
+        return FileObject.model_validate(self._request("POST", "/v1/files", **self._upload(path, purpose)).json())
+
+    def create_fine_tuning_job(
+        self,
+        training_file: str,
+        method: Literal["supervised", "rlcd"] = "supervised",
+        hyperparameters: dict | None = None,
+        validation_file: str | None = None,
+        suffix: str | None = None,
+        model: str | None = None,
+    ) -> FineTuningJob:
+        """Queue a fine-tune (supervised) or RLCD job; its model is served under job.fine_tuned_model once it succeeds."""
+        body = self._job(training_file, method, hyperparameters, validation_file, suffix, model)
+        return FineTuningJob.model_validate(self._request("POST", JOBS, **body).json())
+
+    def fine_tuning_job(self, job_id: str) -> FineTuningJob:
+        return FineTuningJob.model_validate(self._request("GET", f"{JOBS}/{job_id}").json())
+
+    def fine_tuning_jobs(self) -> list[FineTuningJob]:
+        return _JOBS.validate_python(self._request("GET", JOBS).json()["data"])
+
+    def fine_tuning_events(self, job_id: str) -> list[JobEvent]:
+        return _EVENTS.validate_python(self._request("GET", f"{JOBS}/{job_id}/events").json()["data"])
+
+    def cancel_fine_tuning_job(self, job_id: str) -> FineTuningJob:
+        return FineTuningJob.model_validate(self._request("POST", f"{JOBS}/{job_id}/cancel").json())
 
     def _post(self, path: str, body: dict) -> dict:
         return self._request("POST", path, json=body).json()
@@ -166,6 +225,33 @@ class AsyncSelfJev(_Base):
 
     async def models(self) -> list[dict]:
         return (await self._request("GET", "/v1/models")).json()["data"]
+
+    async def upload_file(self, path: str | Path, purpose: str = "fine-tune") -> FileObject:
+        return FileObject.model_validate((await self._request("POST", "/v1/files", **self._upload(path, purpose))).json())
+
+    async def create_fine_tuning_job(
+        self,
+        training_file: str,
+        method: Literal["supervised", "rlcd"] = "supervised",
+        hyperparameters: dict | None = None,
+        validation_file: str | None = None,
+        suffix: str | None = None,
+        model: str | None = None,
+    ) -> FineTuningJob:
+        body = self._job(training_file, method, hyperparameters, validation_file, suffix, model)
+        return FineTuningJob.model_validate((await self._request("POST", JOBS, **body)).json())
+
+    async def fine_tuning_job(self, job_id: str) -> FineTuningJob:
+        return FineTuningJob.model_validate((await self._request("GET", f"{JOBS}/{job_id}")).json())
+
+    async def fine_tuning_jobs(self) -> list[FineTuningJob]:
+        return _JOBS.validate_python((await self._request("GET", JOBS)).json()["data"])
+
+    async def fine_tuning_events(self, job_id: str) -> list[JobEvent]:
+        return _EVENTS.validate_python((await self._request("GET", f"{JOBS}/{job_id}/events")).json()["data"])
+
+    async def cancel_fine_tuning_job(self, job_id: str) -> FineTuningJob:
+        return FineTuningJob.model_validate((await self._request("POST", f"{JOBS}/{job_id}/cancel")).json())
 
     async def _request(self, method: str, path: str, **kw) -> httpx.Response:
         for attempt in range(self.max_retries + 1):
