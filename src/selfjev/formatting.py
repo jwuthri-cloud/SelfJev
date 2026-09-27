@@ -4,6 +4,7 @@ PREFIX/SUFFIX and pair_text() are copied verbatim from the Qwen3-Reranker-0.6B m
 reference (identical to the repo's chat_template.jinja). Only the PROMPTS mappings are ours. Every run
 records the prompt name and prompt_sha(); editing a mapping changes its sha, so give it a new name.
 """
+
 import hashlib
 
 from .schemas import Question
@@ -25,8 +26,11 @@ PROMPTS = {
     # Question quoted inside the instruction, candidate (or "Yes") as the query.
     "task-v2": lambda q, a, b: (f'Judge whether the Document supports answering the question "{q}" with the answer given in the Query.', a),
     # task-v1 for binary, task-v2 for candidates.
-    "hybrid-v1": lambda q, a, b: ("Answer the question in the Query using only the Document.", q) if b else
-    (f'Judge whether the Document supports answering the question "{q}" with the answer given in the Query.', a),
+    "hybrid-v1": lambda q, a, b: (
+        ("Answer the question in the Query using only the Document.", q)
+        if b
+        else (f'Judge whether the Document supports answering the question "{q}" with the answer given in the Query.', a)
+    ),
 }
 DEFAULT_PROMPT = "task-v1"  # selected on validation splits only; see reports/prompt_selection.md
 

@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+    paths-ignore: [docs/**, reports/**, data/**, weights/**, "*.md"]
+  pull_request:
+    paths-ignore: [docs/**, reports/**, data/**, weights/**, "*.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - run: uvx ruff@0.16.9 check src tests scripts
+      - run: uvx ruff@0.16.9 format --check src tests scripts
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6  # no LFS: the tests use data/dev.jsonl and examples/, both plain files
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('tests/**/*.py') }}
+          restore-keys: hf-
+      - run: uv sync --group dev
+      - run: uv run pytest -q

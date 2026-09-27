@@ -1,4 +1,5 @@
 """Request parsing and validation. Our own schema; not Jev's."""
+
 from dataclasses import dataclass
 
 TYPES = ("binary", "multiclass", "multilabel")

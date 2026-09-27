@@ -9,6 +9,7 @@ logprob(yes) - logprob(no) = z_yes - z_no, the value ChallengerScorer.readout co
   python -m selfjev.vllm_qwen35 merge --adapter runs/qwen35_4b_tree/adapter --out runs/qwen35_4b_tree/merged
   python -m selfjev.vllm_qwen35 serve --model-dir runs/qwen35_4b_tree/merged --port 8766 --options-in-question
 """
+
 import argparse
 import json
 import time
@@ -30,8 +31,11 @@ def merge(adapter, out, model_id=QWEN35_4B[0], revision=QWEN35_4B[1]):
     from peft import PeftModel
     from safetensors.torch import load_file, save_file
     from transformers import Qwen3_5ForCausalLM
+
     peft = PeftModel.from_pretrained(Qwen3_5ForCausalLM.from_pretrained(model_id, revision=revision, dtype=torch.bfloat16), adapter)
-    targets = {n.removeprefix("base_model.model.").removesuffix(".lora_A") + ".weight" for n, _ in peft.named_modules() if n.endswith(".lora_A")}
+    targets = {
+        n.removeprefix("base_model.model.").removesuffix(".lora_A") + ".weight" for n, _ in peft.named_modules() if n.endswith(".lora_A")
+    }
     merged = peft.merge_and_unload().state_dict()  # only the LoRA targets are copied: other tensors may differ by dtype only
     src, out = Path(snapshot_download(model_id, revision=revision)), Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -53,18 +57,29 @@ def merge(adapter, out, model_id=QWEN35_4B[0], revision=QWEN35_4B[1]):
         shutil.copyfile(src / "model.safetensors.index.json", out / "model.safetensors.index.json")
     if len(changed) != len(targets):
         raise RuntimeError(f"{len(changed)} checkpoint tensors replaced but the adapter has {len(targets)} LoRA layers: key mismatch?")
-    (out / "merge_meta.json").write_text(json.dumps({"model_id": model_id, "revision": revision, "dtype": "bfloat16",
-                                                     "adapter_sha256": sha256_file(Path(adapter) / "adapter_model.safetensors"),
-                                                     "changed_tensors": len(changed)}, indent=2))
+    (out / "merge_meta.json").write_text(
+        json.dumps(
+            {
+                "model_id": model_id,
+                "revision": revision,
+                "dtype": "bfloat16",
+                "adapter_sha256": sha256_file(Path(adapter) / "adapter_model.safetensors"),
+                "changed_tensors": len(changed),
+            },
+            indent=2,
+        )
+    )
     print(f"{out}: {len(changed)} tensors merged")
 
 
 class VllmQwen35Scorer:
-    def __init__(self, model_dir, max_length=32768, gpu_memory_utilization=0.85, enable_prefix_caching=True, max_num_seqs=128,
-                 **llm_kwargs):  # e.g. mamba_block_size: where vLLM may resume a hybrid model's cached recurrent state
+    def __init__(
+        self, model_dir, max_length=32768, gpu_memory_utilization=0.85, enable_prefix_caching=True, max_num_seqs=128, **llm_kwargs
+    ):  # e.g. mamba_block_size: where vLLM may resume a hybrid model's cached recurrent state
         import vllm
         from transformers import AutoTokenizer
         from vllm import LLM, SamplingParams
+
         self.max_length, self.tokenizer = max_length, AutoTokenizer.from_pretrained(model_dir)
         self._enc = object.__new__(ChallengerScorer)  # only its prompt builder: entry() needs these attributes
         self._enc.__dict__.update(name="qwen35_4b", tokenizer=self.tokenizer, max_length=max_length)
@@ -72,16 +87,35 @@ class VllmQwen35Scorer:
         assert len(self.yes) == len(self.no) == 1, (self.yes, self.no)
         self.yes, self.no = self.yes[0], self.no[0]
         provenance = json.loads((Path(model_dir) / "merge_meta.json").read_text())
-        self.llm = LLM(model=model_dir, dtype="bfloat16", max_model_len=max_length, enable_prefix_caching=enable_prefix_caching,
-                       gpu_memory_utilization=gpu_memory_utilization, max_num_seqs=max_num_seqs, logprobs_mode="processed_logprobs",
-                       max_logprobs=2, limit_mm_per_prompt={"image": 0, "video": 0}, **llm_kwargs)
+        self.llm = LLM(
+            model=model_dir,
+            dtype="bfloat16",
+            max_model_len=max_length,
+            enable_prefix_caching=enable_prefix_caching,
+            gpu_memory_utilization=gpu_memory_utilization,
+            max_num_seqs=max_num_seqs,
+            logprobs_mode="processed_logprobs",
+            max_logprobs=2,
+            limit_mm_per_prompt={"image": 0, "video": 0},
+            **llm_kwargs,
+        )
         self.params = SamplingParams(max_tokens=1, temperature=0.0, logprobs=2, allowed_token_ids=[self.yes, self.no])
-        self.meta = {"model": provenance["model_id"], "revision": provenance["revision"], "adapter": f"merged into {model_dir}",
-                     "adapter_sha256": provenance["adapter_sha256"], "architecture": "shared document on vLLM (prefix cache), "
-                     "readout logprob(yes) - logprob(no) over {yes, no}", "prompt": "challenger-state-first-v1",
-                     "prompt_sha": __import__("hashlib").sha256(INSTRUCTION.encode()).hexdigest()[:12], "vllm_version": vllm.__version__,
-                     "enable_prefix_caching": enable_prefix_caching, "llm_kwargs": llm_kwargs, "device": "cuda", "dtype": "bfloat16", "max_length": max_length,
-                     "truncation": "none (overlength input raises InputTooLong)"}
+        self.meta = {
+            "model": provenance["model_id"],
+            "revision": provenance["revision"],
+            "adapter": f"merged into {model_dir}",
+            "adapter_sha256": provenance["adapter_sha256"],
+            "architecture": "shared document on vLLM (prefix cache), readout logprob(yes) - logprob(no) over {yes, no}",
+            "prompt": "challenger-state-first-v1",
+            "prompt_sha": __import__("hashlib").sha256(INSTRUCTION.encode()).hexdigest()[:12],
+            "vllm_version": vllm.__version__,
+            "enable_prefix_caching": enable_prefix_caching,
+            "llm_kwargs": llm_kwargs,
+            "device": "cuda",
+            "dtype": "bfloat16",
+            "max_length": max_length,
+            "truncation": "none (overlength input raises InputTooLong)",
+        }
 
     def score_requests(self, reqs):
         t0 = time.perf_counter()
@@ -94,11 +128,15 @@ class VllmQwen35Scorer:
         per = [[[next(z) for _ in e["branches"]] for e in es] for es in entries]
         cached = [getattr(o, "num_cached_tokens", None) for o in outs]
         roots = {tuple(e["root"]) for es in entries for e in es}
-        return per, {"pairs": len(prompts), "batches": 1,
-                     "input_tokens": sum(map(len, roots)) + sum(len(b) for es in entries for e in es for b in e["branches"]),
-                     "padded_tokens": sum(len(p["prompt_token_ids"]) for p in prompts),  # submitted before prefix-cache hits
-                     "cached_tokens": sum(cached) if None not in cached else None,
-                     "tokenize_ms": 1e3 * (t1 - t0), "model_ms": 1e3 * (t2 - t1)}
+        return per, {
+            "pairs": len(prompts),
+            "batches": 1,
+            "input_tokens": sum(map(len, roots)) + sum(len(b) for es in entries for e in es for b in e["branches"]),
+            "padded_tokens": sum(len(p["prompt_token_ids"]) for p in prompts),  # submitted before prefix-cache hits
+            "cached_tokens": sum(cached) if None not in cached else None,
+            "tokenize_ms": 1e3 * (t1 - t0),
+            "model_ms": 1e3 * (t2 - t1),
+        }
 
 
 if __name__ == "__main__":
@@ -117,5 +155,9 @@ if __name__ == "__main__":
         merge(a.adapter, a.out)
     else:
         from .server import serve
-        serve(VllmQwen35Scorer(a.model_dir, gpu_memory_utilization=a.gpu_memory_utilization), port=a.port,
-              options_in_question=a.options_in_question)
+
+        serve(
+            VllmQwen35Scorer(a.model_dir, gpu_memory_utilization=a.gpu_memory_utilization),
+            port=a.port,
+            options_in_question=a.options_in_question,
+        )

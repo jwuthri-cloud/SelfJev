@@ -7,6 +7,7 @@ multiclass: p = softmax(scores / T) within the question; selected = argmax (or N
 multilabel: p = sigmoid(scores / T) elementwise, no sum constraint; selected = [p >= threshold]
 T = 1 unless a calibration file supplies a held-out temperature for that question type.
 """
+
 import math
 import time
 
@@ -42,17 +43,29 @@ def decide(q: Question, scores: list[float], calibration=None) -> dict:
         probs = softmax([s / T for s in scores])
         best = max(range(len(probs)), key=lambda i: (probs[i], q.candidates[i].id))  # exact ties: by id, not input order
         abstain = q.abstain_below is not None and probs[best] < q.abstain_below
-        return out | {"selected": None if abstain else q.candidates[best].id, "abstained": abstain,
-                      "abstain_below": q.abstain_below,
-                      "candidates": [{"id": c.id, "score": s, "probability": p} for c, s, p in zip(q.candidates, scores, probs)]}
+        return out | {
+            "selected": None if abstain else q.candidates[best].id,
+            "abstained": abstain,
+            "abstain_below": q.abstain_below,
+            "candidates": [{"id": c.id, "score": s, "probability": p} for c, s, p in zip(q.candidates, scores, probs)],
+        }
     threshold, source = _threshold(q, calibration)
     probs = [sigmoid(s / T) for s in scores]
     if q.type == "binary":
-        return out | {"score": scores[0], "p_yes": probs[0], "p_no": 1 - probs[0], "selected": probs[0] >= threshold,
-                      "threshold": threshold, "threshold_source": source}
-    return out | {"selected": [c.id for c, p in zip(q.candidates, probs) if p >= threshold],
-                  "threshold": threshold, "threshold_source": source,
-                  "candidates": [{"id": c.id, "score": s, "probability": p} for c, s, p in zip(q.candidates, scores, probs)]}
+        return out | {
+            "score": scores[0],
+            "p_yes": probs[0],
+            "p_no": 1 - probs[0],
+            "selected": probs[0] >= threshold,
+            "threshold": threshold,
+            "threshold_source": source,
+        }
+    return out | {
+        "selected": [c.id for c, p in zip(q.candidates, probs) if p >= threshold],
+        "threshold": threshold,
+        "threshold_source": source,
+        "candidates": [{"id": c.id, "score": s, "probability": p} for c, s, p in zip(q.candidates, scores, probs)],
+    }
 
 
 def classify_many(scorer, requests, calibration=None, prompt=DEFAULT_PROMPT) -> tuple[list[list[dict]], dict]:
@@ -70,15 +83,17 @@ def classify_many(scorer, requests, calibration=None, prompt=DEFAULT_PROMPT) -> 
     try:
         scores, stats = scorer.score(texts)
     except InputTooLong as e:
-        where = [f"request {owners[i][0]} question '{owners[i][1]}'" + (f" candidate '{owners[i][2]}'" if owners[i][2] else "")
-                 + f": {n} tokens" for i, n in e.over[:5]]
+        where = [
+            f"request {owners[i][0]} question '{owners[i][1]}'" + (f" candidate '{owners[i][2]}'" if owners[i][2] else "") + f": {n} tokens"
+            for i, n in e.over[:5]
+        ]
         raise InputTooLong(e.over, e.max_length, "; ".join(where)) from None
     results, k = [], 0
     for r in reqs:
         res = []
         for q in r.questions:
             n = len(q.candidates) or 1
-            res.append(decide(q, scores[k:k + n], calibration))
+            res.append(decide(q, scores[k : k + n], calibration))
             k += n
         results.append(res)
     return results, stats

@@ -1,4 +1,5 @@
 """JSONL examples: one (state, question, target) per line. See README "Data format"."""
+
 import gzip
 import hashlib
 import json
@@ -59,8 +60,12 @@ def expand_source(src: dict) -> list[dict]:
         if not isinstance(q, dict) or "target" not in q:
             raise ValidationError(f"source {src.get('source_id')!r} question {i}: must be an object with 'target'")
         ex = {k: src[k] for k in ("source_id", "family", "provenance", "state", "split") if k in src}
-        ex |= {"id": f"{src.get('source_id')}-q{i}", "question": {k: v for k, v in q.items() if k not in QUESTION_EXTRA},
-               "target": q["target"], "hard_cases": list(src.get("hard_cases", [])) + list(q.get("hard_cases", []))}
+        ex |= {
+            "id": f"{src.get('source_id')}-q{i}",
+            "question": {k: v for k, v in q.items() if k not in QUESTION_EXTRA},
+            "target": q["target"],
+            "hard_cases": list(src.get("hard_cases", [])) + list(q.get("hard_cases", [])),
+        }
         ex |= {k: q[k] for k in ("paraphrase_group", "notes") if k in q}
         validate_example(ex)
         out.append(ex)
@@ -68,7 +73,7 @@ def expand_source(src: dict) -> list[dict]:
 
 
 def read_jsonl(path) -> list[dict]:
-    with (gzip.open(path, "rt", encoding="utf-8") if str(path).endswith(".gz") else open(path)) as f:
+    with gzip.open(path, "rt", encoding="utf-8") if str(path).endswith(".gz") else open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
 
 
@@ -112,16 +117,17 @@ def _check(paths):
     bad = 0
     for p in paths:
         stats = Counter()
-        for n, line in enumerate(open(p), 1):
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-                for ex in expand_source(row) if "questions" in row else [row]:
-                    stats[(ex["family"], validate_example(ex).type)] += 1
-            except (ValidationError, json.JSONDecodeError) as e:
-                bad += 1
-                print(f"{p}:{n}: {e}")
+        with open(p) as f:
+            for n, line in enumerate(f, 1):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                    for ex in expand_source(row) if "questions" in row else [row]:
+                        stats[(ex["family"], validate_example(ex).type)] += 1
+                except (ValidationError, json.JSONDecodeError) as e:
+                    bad += 1
+                    print(f"{p}:{n}: {e}")
         print(f"{p}: {sum(stats.values())} valid", dict(sorted(stats.items())))
     return bad
 

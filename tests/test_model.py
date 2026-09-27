@@ -1,6 +1,8 @@
 """Real-model tests with the pinned Qwen3-Reranker-0.6B (fp32). Slower: they load the checkpoint."""
+
 import json
 import random
+from pathlib import Path
 
 import pytest
 import torch
@@ -26,8 +28,13 @@ def official_scores(model, tokenizer, pairs, max_length=8192):
     prefix_tokens = tokenizer.encode(PREFIX, add_special_tokens=False)
     suffix_tokens = tokenizer.encode(SUFFIX, add_special_tokens=False)
     token_false_id, token_true_id = tokenizer.convert_tokens_to_ids("no"), tokenizer.convert_tokens_to_ids("yes")
-    inputs = tokenizer(pairs, padding=False, truncation="longest_first", return_attention_mask=False,
-                       max_length=max_length - len(prefix_tokens) - len(suffix_tokens))
+    inputs = tokenizer(
+        pairs,
+        padding=False,
+        truncation="longest_first",
+        return_attention_mask=False,
+        max_length=max_length - len(prefix_tokens) - len(suffix_tokens),
+    )
     for i, ele in enumerate(inputs["input_ids"]):
         inputs["input_ids"][i] = prefix_tokens + ele + suffix_tokens
     inputs = tokenizer.pad(inputs, padding=True, return_tensors="pt", max_length=max_length)
@@ -39,11 +46,17 @@ def official_scores(model, tokenizer, pairs, max_length=8192):
 
 
 PAIRS = [
-    pair_text("Given a web search query, retrieve relevant passages that answer the query", "What is the capital of China?",
-              "The capital of China is Beijing."),
-    pair_text("Given a web search query, retrieve relevant passages that answer the query", "What is the capital of China?",
-              "Gravity is a force that attracts two bodies towards each other. It gives weight to physical objects and is "
-              "responsible for the movement of planets around the sun. " * 20),
+    pair_text(
+        "Given a web search query, retrieve relevant passages that answer the query",
+        "What is the capital of China?",
+        "The capital of China is Beijing.",
+    ),
+    pair_text(
+        "Given a web search query, retrieve relevant passages that answer the query",
+        "What is the capital of China?",
+        "Gravity is a force that attracts two bodies towards each other. It gives weight to physical objects and is "
+        "responsible for the movement of planets around the sun. " * 20,
+    ),
     pair_text("Judge whether the Document is a complaint.", "complaint", "My order arrived broken and nobody answers my emails."),
 ]
 
@@ -65,7 +78,7 @@ def test_batched_equals_single_across_lengths(scorer):
 
 
 def test_candidate_order_and_extra_questions_real_model(scorer):
-    req = json.load(open("examples/request.json"))
+    req = json.loads(Path("examples/request.json").read_text())
     base = {q["id"]: q for q in classify(scorer, req)["questions"]}
     req["questions"][1]["candidates"].reverse()
     req["questions"].append({"id": "noise", "type": "binary", "instruction": "Is the moon made of cheese?"})
@@ -117,13 +130,24 @@ def test_lora_gradients_smoke_training_and_reload(tmp_path):
 
 
 def test_train_entrypoint_runs_end_to_end(tmp_path):
-    rows = [json.loads(line) for line in open("data/dev.jsonl")]
+    with open("data/dev.jsonl") as f:
+        rows = [json.loads(line) for line in f]
     rng = random.Random(0)
     for r in rows:
         r["split"] = "train" if rng.random() < 0.6 else "validation"
     data = tmp_path / "d.jsonl"
     data.write_text("\n".join(json.dumps(r) for r in rows))
-    meta = train(None, train_files=[str(data)], val_files=[str(data)], out_dir=str(tmp_path / "run"), max_steps=3,
-                 eval_every=2, max_batch_tokens=2048, grad_accum=1, max_length=1024, gradient_checkpointing=True)
+    meta = train(
+        None,
+        train_files=[str(data)],
+        val_files=[str(data)],
+        out_dir=str(tmp_path / "run"),
+        max_steps=3,
+        eval_every=2,
+        max_batch_tokens=2048,
+        grad_accum=1,
+        max_length=1024,
+        gradient_checkpointing=True,
+    )
     assert meta["steps"] == 3 and meta["reload_check"]["max_abs_score_diff"] < TOL
     assert meta["lora"]["trainable_params"] > 0 and (tmp_path / "run/adapter/adapter_model.safetensors").exists()

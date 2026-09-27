@@ -1,16 +1,19 @@
 """Pure-logic tests (no model): schemas, output modes, grouping, losses, metrics, calibration safeguards.
 A fake scorer is used ONLY to test grouping/mapping; it says nothing about model quality."""
+
 import itertools
 import json
 import math
 import random
+from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 import torch
 
 from selfjev import calibration
-from selfjev.classify import classify, classify_many, decide
+from selfjev.classify import classify, decide
 from selfjev.data import expand_source, split_for, validate_example
 from selfjev.evaluate import auroc, macro_f1, reliability
 from selfjev.formatting import question_pairs
@@ -18,12 +21,13 @@ from selfjev.model import InputTooLong, Scorer
 from selfjev.schemas import ValidationError, parse_question, parse_request
 from selfjev.train import grouped_loss, micro_batches, shuffle_candidates
 
-REQ = json.load(open("examples/request.json"))
+REQ = json.loads(Path("examples/request.json").read_text())
 
 
 class FakeScorer:
     """Deterministic pseudo-score per pair text; lets tests check that scores land on the right candidate."""
-    meta = {"model": "fake", "revision": "x", "adapter": None, "adapter_sha256": None}
+
+    meta: ClassVar[dict] = {"model": "fake", "revision": "x", "adapter": None, "adapter_sha256": None}
 
     @staticmethod
     def f(text):
@@ -35,28 +39,32 @@ class FakeScorer:
 
 # --- schemas -------------------------------------------------------------------------------------------------------
 
+
 def test_valid_request_parses():
     r = parse_request(REQ)
     assert [q.type for q in r.questions] == ["binary", "multiclass", "multilabel"]
 
 
-@pytest.mark.parametrize("mutate,msg", [
-    (lambda r: r.update(state="  "), "state"),
-    (lambda r: r.update(questions=[]), "questions"),
-    (lambda r: r["questions"].append(dict(r["questions"][0])), "duplicate question"),
-    (lambda r: r["questions"][1]["candidates"].append({"id": "billing", "description": "x"}), "duplicate candidate"),
-    (lambda r: r["questions"][1].update(candidates=[]), "non-empty list"),
-    (lambda r: r["questions"][1].update(candidates=r["questions"][1]["candidates"][:1]), "at least 2"),
-    (lambda r: r["questions"][0].update(threshold="0.5"), "threshold"),
-    (lambda r: r["questions"][0].update(threshold=True), "threshold"),
-    (lambda r: r["questions"][0].update(threshold=1.5), "threshold"),
-    (lambda r: r["questions"][0].update(threshold=float("nan")), "threshold"),
-    (lambda r: r["questions"][0].update(candidates=[{"id": "a", "description": "b"}]), "no candidates"),
-    (lambda r: r["questions"][1].update(threshold=0.3), "abstain_below"),
-    (lambda r: r["questions"][2]["candidates"][0].update(description=""), "description"),
-    (lambda r: r["questions"][0].update(treshold=0.5), "unknown field"),
-    (lambda r: r["questions"][0].update(type="ordinal"), "type"),
-])
+@pytest.mark.parametrize(
+    "mutate,msg",
+    [
+        (lambda r: r.update(state="  "), "state"),
+        (lambda r: r.update(questions=[]), "questions"),
+        (lambda r: r["questions"].append(dict(r["questions"][0])), "duplicate question"),
+        (lambda r: r["questions"][1]["candidates"].append({"id": "billing", "description": "x"}), "duplicate candidate"),
+        (lambda r: r["questions"][1].update(candidates=[]), "non-empty list"),
+        (lambda r: r["questions"][1].update(candidates=r["questions"][1]["candidates"][:1]), "at least 2"),
+        (lambda r: r["questions"][0].update(threshold="0.5"), "threshold"),
+        (lambda r: r["questions"][0].update(threshold=True), "threshold"),
+        (lambda r: r["questions"][0].update(threshold=1.5), "threshold"),
+        (lambda r: r["questions"][0].update(threshold=float("nan")), "threshold"),
+        (lambda r: r["questions"][0].update(candidates=[{"id": "a", "description": "b"}]), "no candidates"),
+        (lambda r: r["questions"][1].update(threshold=0.3), "abstain_below"),
+        (lambda r: r["questions"][2]["candidates"][0].update(description=""), "description"),
+        (lambda r: r["questions"][0].update(treshold=0.5), "unknown field"),
+        (lambda r: r["questions"][0].update(type="ordinal"), "type"),
+    ],
+)
 def test_invalid_requests(mutate, msg):
     r = json.loads(json.dumps(REQ))
     mutate(r)
@@ -66,6 +74,7 @@ def test_invalid_requests(mutate, msg):
 
 # --- output modes ----------------------------------------------------------------------------------------------------
 
+
 def test_binary_complement_and_threshold_sources():
     q = parse_question({"id": "b", "type": "binary", "instruction": "x"})
     for s in (-40.0, -2.3, 0.0, 1.7, 35.0):
@@ -73,7 +82,9 @@ def test_binary_complement_and_threshold_sources():
         assert math.isclose(out["p_yes"] + out["p_no"], 1.0, abs_tol=1e-12)
         assert out["selected"] == (out["p_yes"] >= 0.5) and out["threshold_source"] == "default"
     assert decide(q, [0.0], {"threshold": {"binary": 0.7}})["threshold_source"] == "validation"
-    assert decide(parse_question({"id": "b", "type": "binary", "instruction": "x", "threshold": 0.2}), [0.0])["threshold_source"] == "request"
+    assert (
+        decide(parse_question({"id": "b", "type": "binary", "instruction": "x", "threshold": 0.2}), [0.0])["threshold_source"] == "request"
+    )
 
 
 def test_multiclass_normalises_within_question_and_multilabel_does_not():
@@ -98,6 +109,7 @@ def test_abstention_and_temperature():
 
 # --- grouping / mapping ----------------------------------------------------------------------------------------------
 
+
 def test_scores_map_back_to_their_candidates():
     res = classify(FakeScorer(), REQ)
     req = parse_request(REQ)
@@ -118,9 +130,11 @@ def test_permutations_and_extra_questions_do_not_change_answers():
             assert other[qid]["p_yes"] == base[qid]["p_yes"]
         else:
             assert {c["id"]: c["probability"] for c in other[qid]["candidates"]} == pytest.approx(
-                {c["id"]: c["probability"] for c in base[qid]["candidates"]})
-            assert sorted(other[qid]["selected"] if isinstance(other[qid]["selected"], list) else [other[qid]["selected"]]) == \
-                sorted(base[qid]["selected"] if isinstance(base[qid]["selected"], list) else [base[qid]["selected"]])
+                {c["id"]: c["probability"] for c in base[qid]["candidates"]}
+            )
+            assert sorted(other[qid]["selected"] if isinstance(other[qid]["selected"], list) else [other[qid]["selected"]]) == sorted(
+                base[qid]["selected"] if isinstance(base[qid]["selected"], list) else [base[qid]["selected"]]
+            )
 
 
 def test_length_sorted_batches_cover_every_pair_once_under_budget():
@@ -136,21 +150,30 @@ def test_overlength_error_names_the_offender():
     class Short(FakeScorer):
         def score(self, texts):
             raise InputTooLong([(len(texts) - 1, 999)], 128)
+
     with pytest.raises(InputTooLong, match="question 'tags' candidate 'blocked': 999 tokens"):
         classify(Short(), REQ)
 
 
 # --- training losses -------------------------------------------------------------------------------------------------
 
-ITEMS = [{"type": "multiclass", "ids": [[1]] * 3, "target": 2}, {"type": "binary", "ids": [[1]], "target": True},
-         {"type": "multilabel", "ids": [[1]] * 4, "target": [True, False, False, True]}, {"type": "multiclass", "ids": [[1]] * 2, "target": 0}]
+ITEMS = [
+    {"type": "multiclass", "ids": [[1]] * 3, "target": 2},
+    {"type": "binary", "ids": [[1]], "target": True},
+    {"type": "multilabel", "ids": [[1]] * 4, "target": [True, False, False, True]},
+    {"type": "multiclass", "ids": [[1]] * 2, "target": 0},
+]
 
 
 def test_grouped_loss_matches_per_question_definitions():
     s = torch.tensor([0.5, -1.0, 2.0, 0.3, 1.0, -2.0, 0.0, 3.0, -0.5, 0.7])
     F = torch.nn.functional
-    want = (F.cross_entropy(s[None, 0:3], torch.tensor([2])) + F.binary_cross_entropy_with_logits(s[3:4], torch.tensor([1.0]))
-            + F.binary_cross_entropy_with_logits(s[4:8], torch.tensor([1.0, 0, 0, 1])) + F.cross_entropy(s[None, 8:10], torch.tensor([0])))
+    want = (
+        F.cross_entropy(s[None, 0:3], torch.tensor([2]))
+        + F.binary_cross_entropy_with_logits(s[3:4], torch.tensor([1.0]))
+        + F.binary_cross_entropy_with_logits(s[4:8], torch.tensor([1.0, 0, 0, 1]))
+        + F.cross_entropy(s[None, 8:10], torch.tensor([0]))
+    )
     assert torch.allclose(grouped_loss(s, ITEMS), want)
 
 
@@ -183,6 +206,7 @@ def test_micro_batches_keep_questions_whole():
 
 # --- metrics ---------------------------------------------------------------------------------------------------------
 
+
 def test_auroc_matches_brute_force_with_ties():
     rng = random.Random(3)
     ys = [rng.random() < 0.4 for _ in range(300)]
@@ -194,17 +218,34 @@ def test_auroc_matches_brute_force_with_ties():
 
 
 def test_reliability_and_macro_f1():
-    ece, rows = reliability([0.95, 0.95, 0.05, 0.05], [True, False, False, False])
+    ece, _rows = reliability([0.95, 0.95, 0.05, 0.05], [True, False, False, False])
     assert ece == pytest.approx(0.5 * 0.45 + 0.5 * 0.05)
     assert macro_f1([("a", "a"), ("b", "a"), ("b", "b")]) == pytest.approx((2 / 3 + 2 / 3) / 2)
 
 
 # --- calibration -----------------------------------------------------------------------------------------------------
 
+
 def _report(tmp_path, split, preds, name="r.json", **meta):
     p = tmp_path / name
-    p.write_text(json.dumps({"meta": {"model": "m", "revision": "r", "adapter": None, "adapter_sha256": None, "prompt_sha": "p",
-                                      "data": [], "splits": [split], "calibration": None} | meta, "predictions": preds}))
+    p.write_text(
+        json.dumps(
+            {
+                "meta": {
+                    "model": "m",
+                    "revision": "r",
+                    "adapter": None,
+                    "adapter_sha256": None,
+                    "prompt_sha": "p",
+                    "data": [],
+                    "splits": [split],
+                    "calibration": None,
+                }
+                | meta,
+                "predictions": preds,
+            }
+        )
+    )
     return p
 
 
@@ -253,10 +294,18 @@ def test_best_threshold_maximises_f1():
 
 # --- data ------------------------------------------------------------------------------------------------------------
 
+
 def test_example_validation_and_source_expansion():
-    src = {"source_id": "s1", "family": "f", "provenance": "test", "state": "x", "questions": [
-        {"type": "binary", "instruction": "q?", "target": False, "hard_cases": ["negation"]},
-        {"type": "multilabel", "instruction": "q?", "candidates": [{"id": "a", "description": "A"}], "target": []}]}
+    src = {
+        "source_id": "s1",
+        "family": "f",
+        "provenance": "test",
+        "state": "x",
+        "questions": [
+            {"type": "binary", "instruction": "q?", "target": False, "hard_cases": ["negation"]},
+            {"type": "multilabel", "instruction": "q?", "candidates": [{"id": "a", "description": "A"}], "target": []},
+        ],
+    }
     exs = expand_source(src)
     assert [e["id"] for e in exs] == ["s1-q0", "s1-q1"] and exs[0]["hard_cases"] == ["negation"]
     with pytest.raises(ValidationError):
@@ -268,7 +317,7 @@ def test_example_validation_and_source_expansion():
 def test_split_for_is_deterministic_and_roughly_proportional():
     w = {"validation": 0.3, "calibration": 0.2, "test": 0.5}
     assert split_for("abc", w) == split_for("abc", w)
-    counts = {k: 0 for k in w}
+    counts = dict.fromkeys(w, 0)
     for i in range(5000):
         counts[split_for(f"s{i}", w)] += 1
     assert all(abs(counts[k] / 5000 - w[k]) < 0.03 for k in w)

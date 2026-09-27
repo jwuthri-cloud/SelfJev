@@ -7,6 +7,7 @@ Each question contributes equally (per-question mean, then mean over questions i
 question with many labels does not dominate. Micro-batches hold whole questions, so no candidate padding is
 needed; token padding is masked by attention as at inference. The base checkpoint stays untouched on disk.
 """
+
 import json
 import math
 import platform
@@ -28,10 +29,30 @@ from .model import MODEL_ID, MODEL_REVISION, Scorer, sync
 from .schemas import parse_question
 
 DEFAULTS = {
-    "train_files": ["data/hf.jsonl"], "val_files": ["data/hf.jsonl"], "out_dir": "runs/lora", "seed": 13,
-    "model_id": MODEL_ID, "revision": MODEL_REVISION, "prompt": DEFAULT_PROMPT, "device": None, "dtype": "float32", "max_length": 2048, "max_batch_tokens": 8192, "grad_accum": 4, "epochs": 1,
-    "max_steps": None, "lr": 2e-4, "warmup_ratio": 0.03, "weight_decay": 0.0, "max_grad_norm": 1.0,
-    "gradient_checkpointing": True, "eval_every": 100, "max_val_questions": 800, "max_train_questions": None, "max_train_per_family": None, "cap_exempt_families": [],
+    "train_files": ["data/hf.jsonl"],
+    "val_files": ["data/hf.jsonl"],
+    "out_dir": "runs/lora",
+    "seed": 13,
+    "model_id": MODEL_ID,
+    "revision": MODEL_REVISION,
+    "prompt": DEFAULT_PROMPT,
+    "device": None,
+    "dtype": "float32",
+    "max_length": 2048,
+    "max_batch_tokens": 8192,
+    "grad_accum": 4,
+    "epochs": 1,
+    "max_steps": None,
+    "lr": 2e-4,
+    "warmup_ratio": 0.03,
+    "weight_decay": 0.0,
+    "max_grad_norm": 1.0,
+    "gradient_checkpointing": True,
+    "eval_every": 100,
+    "max_val_questions": 800,
+    "max_train_questions": None,
+    "max_train_per_family": None,
+    "cap_exempt_families": [],
     "lora": {"r": 16, "alpha": 32, "dropout": 0.05, "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"]},
 }
 
@@ -48,12 +69,12 @@ def encode_items(scorer, examples, prompt=DEFAULT_PROMPT):
     ids = scorer.encode(texts, check=False)
     items, dropped = [], Counter()
     for ex, q, k, n in spans:
-        qids = ids[k:k + n]
+        qids = ids[k : k + n]
         if max(map(len, qids)) > scorer.max_length:
             dropped[ex["family"]] += 1
             continue
         cids = [c.id for c in q.candidates]
-        target = {"binary": lambda t: t, "multiclass": cids.index, "multilabel": lambda t: [c in t for c in cids]}[q.type](ex["target"])
+        target = {"binary": lambda t: t, "multiclass": cids.index, "multilabel": lambda t: [c in t for c in cids]}[q.type](ex["target"])  # noqa: B023 lambda called right away
         items.append({"id": ex["id"], "family": ex["family"], "type": q.type, "ids": qids, "target": target})
     return items, dict(dropped)
 
@@ -66,16 +87,18 @@ def shuffle_candidates(item, rng):
     perm = list(range(len(item["ids"])))
     rng.shuffle(perm)
     t = item["target"]
-    return item | {"ids": [item["ids"][i] for i in perm],
-                   "target": perm.index(t) if item["type"] == "multiclass" else [t[i] for i in perm]} \
+    return (
+        item
+        | {"ids": [item["ids"][i] for i in perm], "target": perm.index(t) if item["type"] == "multiclass" else [t[i] for i in perm]}
         | {key: [item[key][i] for i in perm] for key in ("content", "teacher_scores", "candidate_ids") if key in item}
+    )
 
 
 def grouped_loss(s, items):
     """Sum of per-question losses; s holds the items' pair scores concatenated in order."""
     total, k = s.new_zeros(()), 0
     for it in items:
-        x = s[k:k + len(it["ids"])]
+        x = s[k : k + len(it["ids"])]
         k += len(it["ids"])
         if it["type"] == "multiclass":
             total = total + F.cross_entropy(x[None], torch.tensor([it["target"]], device=s.device))
@@ -92,14 +115,14 @@ def micro_batches(items, max_batch_tokens, rng, bucket=512):
     rng.shuffle(order)
     out = []
     for c in range(0, len(order), bucket):
-        chunk = sorted(order[c:c + bucket], key=lambda i: max(map(len, items[i]["ids"])))
+        chunk = sorted(order[c : c + bucket], key=lambda i: max(map(len, items[i]["ids"])))
         cur, pairs, width = [], 0, 0
         for i in chunk:
             n, w = len(items[i]["ids"]), max(map(len, items[i]["ids"]))
             if cur and (pairs + n) * max(width, w) > max_batch_tokens:
                 out.append(cur)
                 cur, pairs, width = [], 0, 0
-            cur, pairs, width = cur + [i], pairs + n, max(width, w)
+            cur, pairs, width = [*cur, i], pairs + n, max(width, w)
         if cur:
             out.append(cur)
     rng.shuffle(out)
@@ -121,12 +144,15 @@ def validate(scorer, items):
         loss = grouped_loss(torch.tensor(flat), items).item() / len(items)
     k, correct, by_type = 0, [], Counter()
     for it in items:
-        s = flat[k:k + len(it["ids"])]
+        s = flat[k : k + len(it["ids"])]
         k += len(it["ids"])
         correct.append(question_correct(s, it))
         by_type[it["type"], correct[-1]] += 1
-    acc = {t: by_type[t, True] / (by_type[t, True] + by_type[t, False]) for t in ("binary", "multiclass", "multilabel")
-           if by_type[t, True] + by_type[t, False]}
+    acc = {
+        t: by_type[t, True] / (by_type[t, True] + by_type[t, False])
+        for t in ("binary", "multiclass", "multilabel")
+        if by_type[t, True] + by_type[t, False]
+    }
     return {"loss": loss, "question_accuracy": sum(correct) / len(correct), "accuracy_by_type_at_T1_t0.5": acc}, flat
 
 
@@ -154,8 +180,11 @@ def select_data(cfg, rng):
 
 
 def hardware(device):
-    chip = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True).stdout.strip() \
-        if platform.system() == "Darwin" else platform.processor()
+    chip = (
+        subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True).stdout.strip()
+        if platform.system() == "Darwin"
+        else platform.processor()
+    )
     return {"device": device, "chip": chip, "platform": platform.platform()}
 
 
@@ -168,12 +197,20 @@ def train(config_path=None, **overrides):
     torch.manual_seed(cfg["seed"])
     t_start = time.perf_counter()
 
-    scorer = Scorer(device=cfg["device"], dtype=cfg["dtype"], max_length=cfg["max_length"], max_batch_tokens=cfg["max_batch_tokens"],
-                    model_id=cfg["model_id"], revision=cfg["revision"])
+    scorer = Scorer(
+        device=cfg["device"],
+        dtype=cfg["dtype"],
+        max_length=cfg["max_length"],
+        max_batch_tokens=cfg["max_batch_tokens"],
+        model_id=cfg["model_id"],
+        revision=cfg["revision"],
+    )
     linear = lora_targets(scorer.model, cfg["lora"]["target_modules"])
     lcfg = cfg["lora"]
-    scorer.model = model = get_peft_model(scorer.model, LoraConfig(r=lcfg["r"], lora_alpha=lcfg["alpha"], lora_dropout=lcfg["dropout"],
-                                                                   target_modules=lcfg["target_modules"], bias="none"))
+    scorer.model = model = get_peft_model(
+        scorer.model,
+        LoraConfig(r=lcfg["r"], lora_alpha=lcfg["alpha"], lora_dropout=lcfg["dropout"], target_modules=lcfg["target_modules"], bias="none"),
+    )
     trainable, total = model.get_nb_trainable_parameters()
     if cfg["gradient_checkpointing"]:
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
@@ -187,9 +224,14 @@ def train(config_path=None, **overrides):
     warmup = max(1, round(cfg["warmup_ratio"] * total_steps))
     params = [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(params, lr=cfg["lr"], weight_decay=cfg["weight_decay"])
-    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min((s + 1) / warmup, max(0.0, (total_steps - s) / max(1, total_steps - warmup))))
-    print(f"train questions {len(train_items)} (dropped overlength {dropped_train}), val {len(val_items)}; "
-          f"{total_steps} optimizer steps, warmup {warmup}", flush=True)
+    sched = torch.optim.lr_scheduler.LambdaLR(
+        opt, lambda s: min((s + 1) / warmup, max(0.0, (total_steps - s) / max(1, total_steps - warmup)))
+    )
+    print(
+        f"train questions {len(train_items)} (dropped overlength {dropped_train}), val {len(val_items)}; "
+        f"{total_steps} optimizer steps, warmup {warmup}",
+        flush=True,
+    )
 
     log, step, seen = [], 0, 0
     v0, _ = validate(scorer, val_items)
@@ -203,7 +245,7 @@ def train(config_path=None, **overrides):
     for epoch in range(cfg["epochs"] if not cfg["max_steps"] else 10**9):
         batches = micro_batches(train_items, cfg["max_batch_tokens"], rng)
         for g in range(0, len(batches), cfg["grad_accum"]):
-            group = batches[g:g + cfg["grad_accum"]]
+            group = batches[g : g + cfg["grad_accum"]]
             nq = sum(len(b) for b in group)
             model.train()
             step_loss = 0.0
@@ -226,8 +268,11 @@ def train(config_path=None, **overrides):
                 sync(scorer.device)
                 dt = time.perf_counter() - t_last
                 t_last = time.perf_counter()
-                print(f"step {step}/{total_steps} epoch {epoch} loss {sum(window) / len(window):.4f} gnorm {gnorm:.3f} "
-                      f"lr {sched.get_last_lr()[0]:.2e} {10 / dt:.2f} steps/s", flush=True)
+                print(
+                    f"step {step}/{total_steps} epoch {epoch} loss {sum(window) / len(window):.4f} gnorm {gnorm:.3f} "
+                    f"lr {sched.get_last_lr()[0]:.2e} {10 / dt:.2f} steps/s",
+                    flush=True,
+                )
                 log.append({"step": step, "train_loss": sum(window) / len(window), "grad_norm": gnorm, "questions_seen": seen})
                 window = []
             if step % cfg["eval_every"] == 0 or step == total_steps:
@@ -254,25 +299,40 @@ def train(config_path=None, **overrides):
 
     # Reload the saved best adapter from disk and check it reproduces the in-memory scores.
     # Same dtype AND batch budget as the reference: in bf16, batch composition alone moves scores by ~0.1-0.2.
-    reloaded = Scorer(adapter=out / "adapter", device=scorer.device, dtype=cfg["dtype"], max_length=cfg["max_length"],
-                      model_id=cfg["model_id"], revision=cfg["revision"],
-                      max_batch_tokens=cfg["max_batch_tokens"])
+    reloaded = Scorer(
+        adapter=out / "adapter",
+        device=scorer.device,
+        dtype=cfg["dtype"],
+        max_length=cfg["max_length"],
+        model_id=cfg["model_id"],
+        revision=cfg["revision"],
+        max_batch_tokens=cfg["max_batch_tokens"],
+    )
     re_scores, _ = reloaded.score_ids([x for it in val_items[:64] for x in it["ids"]])
     reload_diff = max(abs(a - b) for a, b in zip(ref_scores, re_scores))
     meta = {
-        "config": cfg, "base": {"model": scorer.meta["model"], "revision": scorer.meta["revision"]},
+        "config": cfg,
+        "base": {"model": scorer.meta["model"], "revision": scorer.meta["revision"]},
         "prompt": {"name": cfg["prompt"], "sha": prompt_sha(cfg["prompt"])},
         "lora": lcfg | {"trainable_params": trainable, "total_params": total, "linear_modules_available": linear},
-        "data": {"train_files": [{"path": p, "sha256": sha256_file(p)} for p in cfg["train_files"]],
-                 "val_files": [{"path": p, "sha256": sha256_file(p)} for p in cfg["val_files"]],
-                 "train_questions": len(train_items), "val_questions": len(val_items),
-                 "train_by_family": dict(Counter(it["family"] for it in train_items)),
-                 "train_by_type": dict(Counter(it["type"] for it in train_items)),
-                 "dropped_overlength": {"train": dropped_train, "val": dropped_val}},
-        "best": best, "steps": step, "log": log, "reload_check": {"questions": 64, "max_abs_score_diff": reload_diff},
+        "data": {
+            "train_files": [{"path": p, "sha256": sha256_file(p)} for p in cfg["train_files"]],
+            "val_files": [{"path": p, "sha256": sha256_file(p)} for p in cfg["val_files"]],
+            "train_questions": len(train_items),
+            "val_questions": len(val_items),
+            "train_by_family": dict(Counter(it["family"] for it in train_items)),
+            "train_by_type": dict(Counter(it["type"] for it in train_items)),
+            "dropped_overlength": {"train": dropped_train, "val": dropped_val},
+        },
+        "best": best,
+        "steps": step,
+        "log": log,
+        "reload_check": {"questions": 64, "max_abs_score_diff": reload_diff},
         "hardware": hardware(scorer.device),
         "versions": {"torch": torch.__version__, "transformers": transformers.__version__, "peft": peft.__version__},
-        "wall_s": time.perf_counter() - t_start, "adapter_sha256": sha256_file(out / "adapter/adapter_model.safetensors")}
+        "wall_s": time.perf_counter() - t_start,
+        "adapter_sha256": sha256_file(out / "adapter/adapter_model.safetensors"),
+    }
     (out / "train_meta.json").write_text(json.dumps(meta, indent=1))
     print(f"best step {best['step']} val loss {best['loss']:.4f}; reload max |diff| {reload_diff:.2e}; saved {out / 'adapter'}", flush=True)
     return meta

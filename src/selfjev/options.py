@@ -4,6 +4,7 @@ alternatives. Adapters trained with it (data/ova/, `selfjev finetune`) need the 
 
 The "option pointers" variant (numbered options, "option k" leaves) was a dead end; it is at tag
 archive/pre-cleanup-2026-09-27."""
+
 import hashlib
 import random
 

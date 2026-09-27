@@ -18,6 +18,7 @@ Two exact execution paths (tests check they agree with the standalone sequences)
 Scores go through classify.decide as for every backend (sigmoid / grouped softmax / multilabel sigmoid).
 Works with any Qwen3-architecture causal LM (Qwen3-Reranker-*, Qwen3-*-Instruct): only the chat suffix differs.
 """
+
 import hashlib
 import json
 import time
@@ -47,9 +48,17 @@ def suffix_for(model_id: str) -> str:
 
 
 def format_config(model_id: str, format_name: str = FORMAT) -> dict:
-    cfg = {"name": FORMAT, "prefix": PREFIX, "state": STATE_TEXT, "question": QUESTION_TEXT, "leaf": LEAF_TEXT,
-           "suffix": suffix_for(model_id), "binary_answer": BINARY_ANSWER, "readout": ["yes", "no"],
-           "user_text": "split_special_tokens=True"}
+    cfg = {
+        "name": FORMAT,
+        "prefix": PREFIX,
+        "state": STATE_TEXT,
+        "question": QUESTION_TEXT,
+        "leaf": LEAF_TEXT,
+        "suffix": suffix_for(model_id),
+        "binary_answer": BINARY_ANSWER,
+        "readout": ["yes", "no"],
+        "user_text": "split_special_tokens=True",
+    }
     if format_name != FORMAT:
         raise ValueError(f"Unknown tree format: {format_name}")
     return cfg | {"sha": hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:12]}
@@ -115,7 +124,7 @@ def tree_mask(tree, *, branches_only=False) -> torch.Tensor:
         anc[g] |= anc[par[g]]
     # Cached inference already knows every branch may see the real root. Build only
     # branch-to-branch visibility: no quadratic allocation in document length.
-    seg = torch.tensor(tree["seg"][tree["root"]:] if branches_only else tree["seg"])
+    seg = torch.tensor(tree["seg"][tree["root"] :] if branches_only else tree["seg"])
     return anc[seg][:, seg] & torch.ones(len(seg), len(seg), dtype=torch.bool).tril()
 
 
@@ -161,8 +170,9 @@ class TreeModel:
             n = len(t["ids"])
             ids[b, :n], pos[b, :n] = torch.tensor(t["ids"]), torch.tensor(t["pos"])
             allowed[b, :n, :n] = tree_mask(t)
-        hidden = decoder(input_ids=ids.to(dev), position_ids=pos.to(dev),
-                         attention_mask=self._additive(allowed[:, None].to(dev), dtype), use_cache=False).last_hidden_state
+        hidden = decoder(
+            input_ids=ids.to(dev), position_ids=pos.to(dev), attention_mask=self._additive(allowed[:, None].to(dev), dtype), use_cache=False
+        ).last_hidden_state
         rows = torch.tensor([b for b, t in enumerate(trees) for _ in t["leaves"]], device=dev)
         cols = torch.tensor([i for t in trees for i in t["leaves"]], device=dev)
         return self._readout(hidden[rows, cols], head)
@@ -175,7 +185,7 @@ class TreeModel:
         B, R = len(trees), max(t["root"] for t in trees)
         roots = torch.full((B, R), self.pad_id, dtype=torch.long)
         for b, t in enumerate(trees):
-            roots[b, :t["root"]] = torch.tensor(t["ids"][:t["root"]])
+            roots[b, : t["root"]] = torch.tensor(t["ids"][: t["root"]])
         with torch.profiler.record_function("tree.root_forward"):
             cache = decoder(input_ids=roots.to(dev), use_cache=True).past_key_values
         Tb = max(len(t["ids"]) - t["root"] for t in trees)
@@ -188,10 +198,15 @@ class TreeModel:
             ids[b, :n], pos[b, :n] = torch.tensor(t["ids"][r:]), torch.tensor(t["pos"][r:])
             with torch.profiler.record_function("tree.branch_mask"):
                 allowed[b, :n, :r] = True  # real root visible; root padding stays masked
-                allowed[b, :n, R:R + n] = tree_mask(t, branches_only=True)
+                allowed[b, :n, R : R + n] = tree_mask(t, branches_only=True)
         with torch.profiler.record_function("tree.branch_forward"):
-            hidden = decoder(input_ids=ids.to(dev), position_ids=pos.to(dev), past_key_values=cache, use_cache=True,
-                             attention_mask=self._additive(allowed[:, None].to(dev), dtype)).last_hidden_state
+            hidden = decoder(
+                input_ids=ids.to(dev),
+                position_ids=pos.to(dev),
+                past_key_values=cache,
+                use_cache=True,
+                attention_mask=self._additive(allowed[:, None].to(dev), dtype),
+            ).last_hidden_state
         rows = torch.tensor([b for b, t in enumerate(trees) for _ in t["leaves"]], device=dev)
         cols = torch.tensor([i - t["root"] for t in trees for i in t["leaves"]], device=dev)
         return self._readout(hidden[rows, cols], head)
@@ -200,8 +215,20 @@ class TreeModel:
 class TreeScorer:
     """Scorer for classify / evaluate / calibrate / bench / serve (via score_requests)."""
 
-    def __init__(self, model_id=RERANKER_4B[0], revision=RERANKER_4B[1], adapter=None, device=None, dtype="bfloat16",
-                 max_length=MAX_CONTEXT, max_batch_tokens=32768, max_batch_size=64, lm=None, merge=False, format_name=None):
+    def __init__(
+        self,
+        model_id=RERANKER_4B[0],
+        revision=RERANKER_4B[1],
+        adapter=None,
+        device=None,
+        dtype="bfloat16",
+        max_length=MAX_CONTEXT,
+        max_batch_tokens=32768,
+        max_batch_size=64,
+        lm=None,
+        merge=False,
+        format_name=None,
+    ):
         if not 0 < max_length <= MAX_CONTEXT:
             raise ValueError(f"max_length must be in (0, {MAX_CONTEXT}]")
         self.device, self.max_length = device or default_device(), max_length
@@ -221,16 +248,26 @@ class TreeScorer:
             lm = AutoModelForCausalLM.from_pretrained(model_id, revision=revision, dtype=getattr(torch, dtype))
         if adapter:
             from peft import PeftModel
+
             lm = PeftModel.from_pretrained(lm, adapter)
             if merge:  # inference only: fewer kernels per layer; weights re-rounded to dtype
                 lm = lm.merge_and_unload()
         self.model = TreeModel(lm.to(self.device).eval(), tok.pad_token_id)
         fmt = self.enc.format
-        self.meta = {"model": model_id, "revision": revision, "architecture": f"shared-prefix tree ({format_name})",
-                     "adapter": str(adapter) if adapter else None, "merged": bool(adapter and merge),
-                     "adapter_sha256": sha256_file(Path(adapter) / "adapter_model.safetensors") if adapter else None,
-                     "prompt": format_name, "prompt_sha": fmt["sha"], "device": self.device, "dtype": dtype, "max_length": max_length,
-                     "truncation": "none (overlength input raises InputTooLong)"}
+        self.meta = {
+            "model": model_id,
+            "revision": revision,
+            "architecture": f"shared-prefix tree ({format_name})",
+            "adapter": str(adapter) if adapter else None,
+            "merged": bool(adapter and merge),
+            "adapter_sha256": sha256_file(Path(adapter) / "adapter_model.safetensors") if adapter else None,
+            "prompt": format_name,
+            "prompt_sha": fmt["sha"],
+            "device": self.device,
+            "dtype": dtype,
+            "max_length": max_length,
+            "truncation": "none (overlength input raises InputTooLong)",
+        }
 
     def trees(self, reqs):
         """-> (trees, per-leaf (request, question id, candidate id)), one tree per distinct state, leaves in
@@ -260,7 +297,7 @@ class TreeScorer:
         """Every leaf's standalone sequence (root + question + leaf) must fit max_length; nothing is truncated."""
         over, where = [], []
         for t, own in zip(trees, owners):
-            for n, (leaf, o) in enumerate(zip(t["leaves"], own)):
+            for _n, (leaf, o) in enumerate(zip(t["leaves"], own)):
                 length = t["pos"][leaf] + 1
                 if length > self.max_length:
                     over.append((len(over), length))
@@ -278,7 +315,7 @@ class TreeScorer:
             if batch and ((len(batch) + 1) * (max(R, r) + max(Tb, tb)) > self.max_batch_tokens or len(batch) == self.max_batch_size):
                 yield batch
                 batch, R, Tb = [], 0, 0
-            batch, R, Tb = batch + [i], max(R, r), max(Tb, tb)
+            batch, R, Tb = [*batch, i], max(R, r), max(Tb, tb)
         if batch:
             yield batch
 
@@ -293,7 +330,7 @@ class TreeScorer:
             s = self.model.cached([trees[i] for i in b]).tolist()  # .tolist() waits for the device
             k = 0
             for i in b:
-                leaf_scores[i], k = s[k:k + len(trees[i]["leaves"])], k + len(trees[i]["leaves"])
+                leaf_scores[i], k = s[k : k + len(trees[i]["leaves"])], k + len(trees[i]["leaves"])
             padded += len(b) * (max(trees[i]["root"] for i in b) + max(len(trees[i]["ids"]) - trees[i]["root"] for i in b))
             n_batches += 1
         t2 = time.perf_counter()
@@ -304,8 +341,16 @@ class TreeScorer:
         out = [[by_q[ri, q.id] for q in r.questions] for ri, r in enumerate(reqs)]
         state_tokens = sum(t["root"] for t in trees)
         branch_tokens = sum(len(t["ids"]) for t in trees) - state_tokens
-        stats = {"pairs": sum(len(t["leaves"]) for t in trees), "batches": n_batches, "input_tokens": state_tokens + branch_tokens,
-                 "padded_tokens": padded, "max_pair_tokens": max(t["pos"][l] + 1 for t in trees for l in t["leaves"]),
-                 "state_sequences": len(trees), "state_tokens": state_tokens, "candidate_tokens": branch_tokens,
-                 "tokenize_ms": 1e3 * (t1 - t0), "model_ms": 1e3 * (t2 - t1)}
+        stats = {
+            "pairs": sum(len(t["leaves"]) for t in trees),
+            "batches": n_batches,
+            "input_tokens": state_tokens + branch_tokens,
+            "padded_tokens": padded,
+            "max_pair_tokens": max(t["pos"][leaf] + 1 for t in trees for leaf in t["leaves"]),
+            "state_sequences": len(trees),
+            "state_tokens": state_tokens,
+            "candidate_tokens": branch_tokens,
+            "tokenize_ms": 1e3 * (t1 - t0),
+            "model_ms": 1e3 * (t2 - t1),
+        }
         return out, stats

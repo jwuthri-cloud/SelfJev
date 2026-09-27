@@ -24,6 +24,7 @@ otherwise; scripts/jev_soft_targets.py writes Jev's). Training then scores again
 --soft-weight x "soft" (default 0.5: the label still decides, the teacher only says how sure to be); validation stays
 on the labels.
 """
+
 import gzip
 import hashlib
 import json
@@ -49,7 +50,9 @@ PROPER = {  # p: [..., labels, outcomes] reported distributions, y: target outco
 
 def load_rows(path, options_in_question=True):
     from .options import with_options
-    rows = [json.loads(line) for line in (gzip.open(path, "rt") if str(path).endswith(".gz") else open(path)) if line.strip()]
+
+    with gzip.open(path, "rt") if str(path).endswith(".gz") else open(path) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
     for i, r in enumerate(rows):
         r.setdefault("family", "data")
         if options_in_question:  # seeded by the row's own id, as scripts/options_in_question.py built data/ova/
@@ -92,7 +95,7 @@ def log_loss(scores, items):
     """Cross-entropy of each question's report against its target, soft or hard (= grouped_loss on hard targets)."""
     total, j = scores.new_zeros(()), 0
     for it in items:
-        s = scores[j:j + len(it["ids"])]
+        s = scores[j : j + len(it["ids"])]
         j += len(it["ids"])
         lp = s.log_softmax(-1)[None] if it["type"] == "multiclass" else torch.stack([F.logsigmoid(s), F.logsigmoid(-s)], -1)
         total = total - (onehot(it, len(s), s.device) * lp).sum(-1).mean()
@@ -117,12 +120,12 @@ def rlcd_loss(scores, items, weights, samples=8, sigma=0.3, beta=0.05):
     """Sum over questions of -(policy-gradient surrogate) + beta * KL. scores: the items' candidate logits, in order."""
     total, j = scores.new_zeros(()), 0
     for it in items:
-        s = scores[j:j + len(it["ids"])]
+        s = scores[j : j + len(it["ids"])]
         j += len(it["ids"])
         z = s.detach() + sigma * torch.randn(samples, len(s), device=s.device)  # sampled reports
         with torch.no_grad():
             r = reward(z, it, weights)
-        logp = -((z - s) ** 2).sum(-1) / (2 * sigma ** 2)  # log N(z; s, sigma^2) + const
+        logp = -((z - s) ** 2).sum(-1) / (2 * sigma**2)  # log N(z; s, sigma^2) + const
         total = total - ((r - r.mean()) * logp).mean() + beta * kl(s, torch.tensor(it["ref"], device=s.device), it["type"])
     assert j == len(scores), "scores and items are misaligned"
     return total
@@ -131,6 +134,7 @@ def rlcd_loss(scores, items, weights, samples=8, sigma=0.3, beta=0.05):
 def metrics(items, scores):
     """Accuracy, cross-entropy, Brier, 10-bin ECE and confidently-wrong decisions (confidence >= 0.9)."""
     from .train import grouped_loss, question_correct
+
     loss = correct = brier = 0.0
     conf, hit = [], []
     for it, s in zip(items, scores):
@@ -145,32 +149,59 @@ def metrics(items, scores):
     bins = [min(int(10 * c), 9) for c in conf]
     ece = sum(abs(sum(c - h for c, h, b in zip(conf, hit, bins) if b == k)) for k in range(10)) / len(conf)
     n = len(items)
-    return {"loss": loss / n, "accuracy": correct / n, "brier": brier / n, "ece": ece, "n": n,
-            "confidently_wrong": sum(c >= 0.9 and not h for c, h in zip(conf, hit))}
+    return {
+        "loss": loss / n,
+        "accuracy": correct / n,
+        "brier": brier / n,
+        "ece": ece,
+        "n": n,
+        "confidently_wrong": sum(c >= 0.9 and not h for c, h in zip(conf, hit)),
+    }
 
 
 def score_items(sc, items, roots, budget):
     from . import qwen35_tree
     from .train_tree import group_by_state, micro_batches, trees_for
+
     out = {}
     with torch.no_grad():
         for b in micro_batches(items, roots, budget, random.Random(0)):
             chunk = group_by_state([items[i] for i in b])
             s, k = qwen35_tree.score(sc, trees_for(chunk, roots)).float().tolist(), 0
             for it in chunk:
-                out[it["id"]], k = s[k:k + len(it["ids"])], k + len(it["ids"])
+                out[it["id"]], k = s[k : k + len(it["ids"])], k + len(it["ids"])
     return [out[it["id"]] for it in items]
 
 
-def train(mode, data, out, val=None, init=None, base="qwen35_4b", options_in_question=True, epochs=1, lr=None, lora_r=64,
-          max_length=8192, batch_tokens=8192, grad_accum=4, eval_every=150, seed=13, reward_weights=None, samples=8,
-          sigma=0.3, beta=0.05, soft_weight=0.5):
+def train(
+    mode,
+    data,
+    out,
+    val=None,
+    init=None,
+    base="qwen35_4b",
+    options_in_question=True,
+    epochs=1,
+    lr=None,
+    lora_r=64,
+    max_length=8192,
+    batch_tokens=8192,
+    grad_accum=4,
+    eval_every=150,
+    seed=13,
+    reward_weights=None,
+    samples=8,
+    sigma=0.3,
+    beta=0.05,
+    soft_weight=0.5,
+):
     from peft import LoraConfig, PeftModel, get_peft_model
 
     from . import qwen35_tree
     from .challengers import ChallengerScorer
     from .train import grouped_loss
     from .train_tree import group_by_state, micro_batches, trees_for
+
     assert mode in ("finetune", "rlcd") and (mode == "finetune" or init), "rlcd starts from a fine-tuned adapter (--init)"
     lr = lr or (2e-4 if mode == "finetune" else 5e-5)
     reward_weights = reward_weights or {"log": 1.0, "brier": 1.0, "spherical": 1.0}
@@ -194,8 +225,10 @@ def train(mode, data, out, val=None, init=None, base="qwen35_4b", options_in_que
         sc.model = PeftModel.from_pretrained(sc.model, init, is_trainable=True)
     else:
         found = {n.rsplit(".", 1)[-1] for n, m in sc.model.named_modules() if isinstance(m, torch.nn.Linear)}
-        sc.model = get_peft_model(sc.model, LoraConfig(r=lora_r, lora_alpha=2 * lora_r, lora_dropout=0.05,
-                                                        target_modules=sorted(set(LINEAR) & found), bias="none"))
+        sc.model = get_peft_model(
+            sc.model,
+            LoraConfig(r=lora_r, lora_alpha=2 * lora_r, lora_dropout=0.05, target_modules=sorted(set(LINEAR) & found), bias="none"),
+        )
     if mode == "rlcd":  # the starting model's logits, for the KL penalty
         sc.model.eval()
         for it, s in zip(tr, score_items(sc, tr, roots, batch_tokens)):
@@ -206,12 +239,30 @@ def train(mode, data, out, val=None, init=None, base="qwen35_4b", options_in_que
     warm = max(1, int(0.05 * steps))
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min((s + 1) / warm, max(0.0, (steps - s) / max(1, steps - warm))))
     select = "loss" if mode == "finetune" else "brier"  # the objective's own proper score on validation
-    meta = {"mode": mode, "base": sc.meta["model"], "revision": sc.meta["revision"], "prompt": sc.meta["prompt"],
-            "init": init, "options_in_question": options_in_question, "data": {p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
-            for p in [data] + ([val] if val else [])}, "train_questions": len(tr), "val_questions": len(va),
-            "dropped_over_max_length": {"train": dropped, "val": vdropped}, "max_length": max_length, "epochs": epochs,
-            "lr": lr, "lora_r": lora_r, "batch_tokens": batch_tokens, "grad_accum": grad_accum, "steps": steps, "seed": seed,
-            "select_by": f"validation {select}", "soft_targets": sum("y" in it for it in tr), "soft_weight": soft_weight, "log": []}
+    meta = {
+        "mode": mode,
+        "base": sc.meta["model"],
+        "revision": sc.meta["revision"],
+        "prompt": sc.meta["prompt"],
+        "init": init,
+        "options_in_question": options_in_question,
+        "data": {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in [data] + ([val] if val else [])},
+        "train_questions": len(tr),
+        "val_questions": len(va),
+        "dropped_over_max_length": {"train": dropped, "val": vdropped},
+        "max_length": max_length,
+        "epochs": epochs,
+        "lr": lr,
+        "lora_r": lora_r,
+        "batch_tokens": batch_tokens,
+        "grad_accum": grad_accum,
+        "steps": steps,
+        "seed": seed,
+        "select_by": f"validation {select}",
+        "soft_targets": sum("y" in it for it in tr),
+        "soft_weight": soft_weight,
+        "log": [],
+    }
     if mode == "rlcd":
         meta["rlcd"] = {"reward": reward_weights, "samples": samples, "sigma": sigma, "beta": beta}
     out.mkdir(parents=True, exist_ok=True)
@@ -235,7 +286,7 @@ def train(mode, data, out, val=None, init=None, base="qwen35_4b", options_in_que
     for _ in range(epochs):
         batches = micro_batches(tr, roots, batch_tokens, rng)
         for b0 in range(0, len(batches), grad_accum):
-            group = batches[b0:b0 + grad_accum]
+            group = batches[b0 : b0 + grad_accum]
             nq = sum(len(b) for b in group)
             sc.model.train()
             opt.zero_grad(set_to_none=True)

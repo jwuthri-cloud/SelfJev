@@ -1,9 +1,11 @@
 """Decisions-API shape compatibility, with a fake scorer (mapping and HTTP plumbing only, no model quality)."""
+
 import json
 import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -15,12 +17,25 @@ EXAMPLE = {  # the request shape from the OpenRouter decisions example
     "model": "any-model-id",
     "state": "Help! My payouts have been failing for 3 days.",
     "questions": {
-        "is_urgent": {"type": "noul", "instructions": "Does this message convey urgency?",
-                      "criteria": {"true": "Explicitly time-sensitive", "false": "No urgency expressed"}},
-        "department": {"type": "choice", "instructions": "Which team should handle this?",
-                       "criteria": {"billing": "Payments, invoicing, refunds", "technical": "Bugs, outages, integrations",
-                                    "sales": "Pricing, upgrades, new accounts"}},
-        "frustration": {"type": "score", "instructions": "How frustrated is the customer?", "criteria": ["Calm", "Frustrated", "Very angry"]},
+        "is_urgent": {
+            "type": "noul",
+            "instructions": "Does this message convey urgency?",
+            "criteria": {"true": "Explicitly time-sensitive", "false": "No urgency expressed"},
+        },
+        "department": {
+            "type": "choice",
+            "instructions": "Which team should handle this?",
+            "criteria": {
+                "billing": "Payments, invoicing, refunds",
+                "technical": "Bugs, outages, integrations",
+                "sales": "Pricing, upgrades, new accounts",
+            },
+        },
+        "frustration": {
+            "type": "score",
+            "instructions": "How frustrated is the customer?",
+            "criteria": ["Calm", "Frustrated", "Very angry"],
+        },
         "plain": {"type": "noul", "instructions": "Is money involved?"},
     },
 }
@@ -28,6 +43,7 @@ EXAMPLE = {  # the request shape from the OpenRouter decisions example
 
 def test_example_request_maps_and_answers_have_the_documented_shape():
     from selfjev.classify import classify
+
     req, decode = compat_to_request(EXAMPLE)
     a = answers_from(classify(FakeScorer(), req), decode)
     assert list(a) == list(EXAMPLE["questions"])
@@ -39,13 +55,16 @@ def test_example_request_maps_and_answers_have_the_documented_shape():
     assert a["frustration"]["score"] == pytest.approx(probs["Frustrated"] * 0.5 + probs["Very angry"])
 
 
-@pytest.mark.parametrize("q", [
-    {"type": "ordinal", "instructions": "x", "criteria": ["a", "b"]},
-    {"type": "choice", "instructions": "x", "criteria": {"only": "one"}},
-    {"type": "score", "instructions": "x", "criteria": ["same", "same"]},
-    {"type": "noul", "instructions": "x", "criteria": {"yes": "a", "no": "b"}},
-    {"type": "choice", "instructions": " ", "criteria": {"a": "x", "b": "y"}},
-])
+@pytest.mark.parametrize(
+    "q",
+    [
+        {"type": "ordinal", "instructions": "x", "criteria": ["a", "b"]},
+        {"type": "choice", "instructions": "x", "criteria": {"only": "one"}},
+        {"type": "score", "instructions": "x", "criteria": ["same", "same"]},
+        {"type": "noul", "instructions": "x", "criteria": {"yes": "a", "no": "b"}},
+        {"type": "choice", "instructions": " ", "criteria": {"a": "x", "b": "y"}},
+    ],
+)
 def test_invalid_compat_questions(q):
     with pytest.raises(ValidationError):
         compat_to_request({"state": "s", "questions": {"q": q}})
@@ -67,7 +86,7 @@ def test_http_routes():
     try:
         code, body = post("/api/alpha/decisions", EXAMPLE)
         assert code == 200 and set(body["answers"]) == set(EXAMPLE["questions"]) and "not the hosted model" in body["meta"]["note"]
-        code, body = post("/classify", json.load(open("examples/request.json")))
+        code, body = post("/classify", json.loads(Path("examples/request.json").read_text()))
         assert code == 200 and [q["id"] for q in body["questions"]] == ["urgent", "team", "tags"]
         assert post("/api/alpha/decisions", {"state": "", "questions": EXAMPLE["questions"]})[0] == 400
         assert post("/nope", {})[0] == 404
@@ -87,8 +106,9 @@ def test_options_in_question_reaches_the_scorer():
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Recording(), options_in_question=True))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{httpd.server_port}/api/alpha/decisions", json.dumps(EXAMPLE).encode(),
-                                     {"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{httpd.server_port}/api/alpha/decisions", json.dumps(EXAMPLE).encode(), {"Content-Type": "application/json"}
+        )
         json.loads(urllib.request.urlopen(req).read())
     finally:
         httpd.shutdown()

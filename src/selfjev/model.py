@@ -1,4 +1,5 @@
 """Qwen3-Reranker pair scorer: official template, length-sorted batches, one forward pass, s = z_yes - z_no."""
+
 import time
 from pathlib import Path
 
@@ -18,8 +19,7 @@ class InputTooLong(ValueError):
     def __init__(self, over: list[tuple[int, int]], max_length: int, detail: str = ""):
         self.over, self.max_length = over, max_length  # [(pair index, token count)]
         detail = detail or f"pair {over[0][0]}: {over[0][1]} tokens"
-        super().__init__(f"{len(over)} input(s) exceed max_length={max_length} tokens (template included; "
-                         f"nothing was truncated). {detail}")
+        super().__init__(f"{len(over)} input(s) exceed max_length={max_length} tokens (template included; nothing was truncated). {detail}")
 
 
 def default_device() -> str:
@@ -46,8 +46,17 @@ def sync(device: str):
 
 
 class Scorer:
-    def __init__(self, adapter=None, device=None, dtype="float32", max_length=8192, max_batch_tokens=16384,
-                 max_batch_size=64, model_id=MODEL_ID, revision=MODEL_REVISION):
+    def __init__(
+        self,
+        adapter=None,
+        device=None,
+        dtype="float32",
+        max_length=8192,
+        max_batch_tokens=16384,
+        max_batch_size=64,
+        model_id=MODEL_ID,
+        revision=MODEL_REVISION,
+    ):
         if not 0 < max_length <= MAX_CONTEXT:
             raise ValueError(f"max_length must be in (0, {MAX_CONTEXT}]")
         self.device, self.max_length = device or default_device(), max_length
@@ -61,12 +70,19 @@ class Scorer:
         model = AutoModelForCausalLM.from_pretrained(model_id, revision=revision, dtype=getattr(torch, dtype))
         if adapter:
             from peft import PeftModel
+
             model = PeftModel.from_pretrained(model, adapter)
         self.model = model.to(self.device).eval()
-        self.meta = {"model": model_id, "revision": revision, "adapter": str(adapter) if adapter else None,
-                     "adapter_sha256": sha256_file(Path(adapter) / "adapter_model.safetensors") if adapter else None,
-                     "device": self.device, "dtype": dtype, "max_length": max_length,
-                     "truncation": "none (overlength input raises InputTooLong)"}
+        self.meta = {
+            "model": model_id,
+            "revision": revision,
+            "adapter": str(adapter) if adapter else None,
+            "adapter_sha256": sha256_file(Path(adapter) / "adapter_model.safetensors") if adapter else None,
+            "device": self.device,
+            "dtype": dtype,
+            "max_length": max_length,
+            "truncation": "none (overlength input raises InputTooLong)",
+        }
 
     def encode(self, texts: list[str], check=True) -> list[list[int]]:
         """Official Transformers-reference tokenization: prefix + tokens(pair text) + suffix."""
@@ -84,10 +100,9 @@ class Scorer:
         input_ids = torch.full((n, width), self.pad_id, dtype=torch.long)
         mask = torch.zeros((n, width), dtype=torch.long)
         for r, x in enumerate(ids):
-            input_ids[r, width - len(x):] = torch.tensor(x)
-            mask[r, width - len(x):] = 1
-        out = self.model(input_ids=input_ids.to(self.device), attention_mask=mask.to(self.device),
-                         logits_to_keep=1, use_cache=False)
+            input_ids[r, width - len(x) :] = torch.tensor(x)
+            mask[r, width - len(x) :] = 1
+        out = self.model(input_ids=input_ids.to(self.device), attention_mask=mask.to(self.device), logits_to_keep=1, use_cache=False)
         z = out.logits[:, -1, [YES_ID, NO_ID]].float()
         return z[:, 0] - z[:, 1]
 
@@ -111,5 +126,11 @@ class Scorer:
             padded += len(b) * max(lengths[i] for i in b)
             n_batches += 1
         t2 = time.perf_counter()
-        return scores, {"pairs": len(ids), "batches": n_batches, "input_tokens": sum(lengths), "padded_tokens": padded,
-                        "max_pair_tokens": max(lengths, default=0), "model_ms": 1e3 * (t2 - t1)}
+        return scores, {
+            "pairs": len(ids),
+            "batches": n_batches,
+            "input_tokens": sum(lengths),
+            "padded_tokens": padded,
+            "max_pair_tokens": max(lengths, default=0),
+            "model_ms": 1e3 * (t2 - t1),
+        }

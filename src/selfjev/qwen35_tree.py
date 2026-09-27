@@ -10,6 +10,7 @@ per question the longest common prefix of its branches (instruction + "Proposed 
 Each leaf therefore equals its standalone sequence (root + question + leaf) up to kernel rounding, and the text is
 encoded once per state instead of once per candidate (tests/test_qwen35_tree.py checks scores and gradients).
 """
+
 from collections import Counter
 from types import SimpleNamespace
 
@@ -49,9 +50,19 @@ def encode_items(sc, examples, max_length):
                 roots.append(e["root"])
             qseg, leaves = split_branches(e["branches"])
             cids = [c.id for c in q.candidates]
-            target = {"binary": lambda t: t, "multiclass": cids.index, "multilabel": lambda t: [c in t for c in cids]}[q.type](ex["target"])
-            items.append({"id": ex["id"], "family": ex["family"], "type": q.type, "state": keys[ex["state"]], "q": qseg,
-                          "ids": leaves, "target": target, "candidate_ids": cids})
+            target = {"binary": lambda t: t, "multiclass": cids.index, "multilabel": lambda t: [c in t for c in cids]}[q.type](ex["target"])  # noqa: B023 lambda called right away
+            items.append(
+                {
+                    "id": ex["id"],
+                    "family": ex["family"],
+                    "type": q.type,
+                    "state": keys[ex["state"]],
+                    "q": qseg,
+                    "ids": leaves,
+                    "target": target,
+                    "candidate_ids": cids,
+                }
+            )
     finally:
         sc.max_length = before
     return items, roots, dict(dropped)
@@ -84,8 +95,9 @@ def pack(trees, pad, device):
         valid = ar[None] < ln[:, None]
         parent = None if d == 0 else torch.tensor([x[2] for x in ns], device=device)
         levels.append((torch.where(valid, s[:, None] + ar, s[:, None]).to(device), valid.to(device), ln.to(device), parent))
-    return SimpleNamespace(ids=ids.to(device), pos=pos.to(device), mask=mask[:, None].to(device),
-                           leaves=torch.tensor(leaves, device=device), levels=levels)
+    return SimpleNamespace(
+        ids=ids.to(device), pos=pos.to(device), mask=mask[:, None].to(device), leaves=torch.tensor(leaves, device=device), levels=levels
+    )
 
 
 def deltanet(mod, x, levels):
@@ -112,8 +124,16 @@ def deltanet(mod, x, levels):
         if mod.num_v_heads // mod.num_k_heads > 1:
             q = q.repeat_interleave(mod.num_v_heads // mod.num_k_heads, dim=2)
             k = k.repeat_interleave(mod.num_v_heads // mod.num_k_heads, dim=2)
-        o, state = chunk_rule(q, k, v, g=g, beta=beta, initial_state=None if parent is None else state[parent],
-                              output_final_state=True, use_qk_l2norm_in_kernel=True)
+        o, state = chunk_rule(
+            q,
+            k,
+            v,
+            g=g,
+            beta=beta,
+            initial_state=None if parent is None else state[parent],
+            output_final_state=True,
+            use_qk_l2norm_in_kernel=True,
+        )
         o = mod.out_proj(mod.norm(o.reshape(-1, mod.head_v_dim), z.reshape(-1, mod.head_v_dim)).reshape(N, L, -1))
         keep = valid.reshape(-1)
         out = out.index_copy(0, idx.reshape(-1)[keep], o.reshape(N * L, -1)[keep])
@@ -145,24 +165,28 @@ def score(sc, trees, grad_checkpoint=True):
     return sc.readout(h.reshape(-1, h.shape[-1])[p.leaves])
 
 
-
 class TreeServer:
     """Serving with the training tree, forward only: per request one tree (text once, each question once, then each
     candidate's own tokens), LoRA merged into the weights. Requests are packed by length under max_batch_tokens."""
 
     def __init__(self, adapter, max_length=32768, max_batch_tokens=16384):
         from .challengers import ChallengerScorer
+
         self.sc = ChallengerScorer("qwen35_4b", adapter=adapter, max_length=max_length)
         self.sc.model = self.sc.model.merge_and_unload()
         self.tokenizer, self.max_batch_tokens = self.sc.tokenizer, max_batch_tokens
-        self.meta = self.sc.meta | {"adapter_merged": True, "architecture": "shared-prefix tree (qwen35_tree), forward only: "
-                                    "text once per request, each question once, then each candidate"}
+        self.meta = self.sc.meta | {
+            "adapter_merged": True,
+            "architecture": "shared-prefix tree (qwen35_tree), forward only: "
+            "text once per request, each question once, then each candidate",
+        }
 
     @torch.inference_mode()
     def score_requests(self, reqs):
         import time
 
         from .tree import build_tree
+
         t0 = time.perf_counter()
         trees, sizes = [], []
         for r in reqs:
@@ -181,21 +205,27 @@ class TreeServer:
         for b in batches:
             s, k = score(self.sc, [trees[j] for j in b], grad_checkpoint=False).float().tolist(), 0
             for j in b:
-                flat[j], k = s[k:k + len(trees[j]["leaves"])], k + len(trees[j]["leaves"])
+                flat[j], k = s[k : k + len(trees[j]["leaves"])], k + len(trees[j]["leaves"])
         t2 = time.perf_counter()
         per = []
         for j, ns in enumerate(sizes):
             it = iter(flat[j])
             per.append([[next(it) for _ in range(n)] for n in ns])
-        return per, {"pairs": sum(map(sum, sizes)), "batches": len(batches), "input_tokens": sum(len(t["ids"]) for t in trees),
-                     "padded_tokens": sum(len(b) * max(len(trees[j]["ids"]) for j in b) for b in batches),
-                     "tokenize_ms": 1e3 * (t1 - t0), "model_ms": 1e3 * (t2 - t1)}
+        return per, {
+            "pairs": sum(map(sum, sizes)),
+            "batches": len(batches),
+            "input_tokens": sum(len(t["ids"]) for t in trees),
+            "padded_tokens": sum(len(b) * max(len(trees[j]["ids"]) for j in b) for b in batches),
+            "tokenize_ms": 1e3 * (t1 - t0),
+            "model_ms": 1e3 * (t2 - t1),
+        }
 
 
 if __name__ == "__main__":  # python -m selfjev.qwen35_tree serve --adapter runs/qwen35_4b_tree/adapter --options-in-question
     import argparse
 
     from .server import serve
+
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["serve"])
     ap.add_argument("--adapter", required=True)

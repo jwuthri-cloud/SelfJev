@@ -4,6 +4,7 @@ Fit temperatures only on predictions whose split is 'calibration'; select thresh
 Anything else (in particular 'test') is refused. A calibration file is tied to the model revision, adapter
 and prompt that produced the predictions, and refuses to load for a different scorer.
 """
+
 import json
 import math
 import time
@@ -49,8 +50,10 @@ def _load_report(path, split):
     report = json.loads(Path(path).read_text())
     bad = {r["split"] for r in report["predictions"]} - {split}
     if bad or report["meta"]["splits"] != [split]:
-        raise LeakageError(f"{path}: expected only split '{split}' predictions, found {sorted(bad | set(report['meta']['splits']))}. "
-                           "Temperatures fit on 'calibration', thresholds on 'validation'; test labels are never used.")
+        raise LeakageError(
+            f"{path}: expected only split '{split}' predictions, found {sorted(bad | set(report['meta']['splits']))}. "
+            "Temperatures fit on 'calibration', thresholds on 'validation'; test labels are never used."
+        )
     if report["meta"].get("calibration"):
         raise ValueError(f"{path}: predictions were already calibrated; re-run eval without --calibration")
     return report
@@ -74,12 +77,27 @@ def best_threshold(items, T):
 def fit(fit_report, threshold_report=None, out=None):
     rep = _load_report(fit_report, "calibration")
     meta = rep["meta"]
-    cal = {"temperature": {}, "threshold": {}, "fit": {
-        "method": "temperature scaling per output type, grid search on NLL", "min_n": MIN_N,
-        "model": meta["model"], "revision": meta["revision"], "adapter": meta["adapter"],
-        "adapter_sha256": meta["adapter_sha256"], "prompt_sha": meta["prompt_sha"],
-        "fit_report": str(fit_report), "fit_report_sha256": sha256_file(fit_report), "fit_data": meta["data"],
-        "created": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "n": {}, "nll_before": {}, "nll_after": {}, "skipped": {}}}
+    cal = {
+        "temperature": {},
+        "threshold": {},
+        "fit": {
+            "method": "temperature scaling per output type, grid search on NLL",
+            "min_n": MIN_N,
+            "model": meta["model"],
+            "revision": meta["revision"],
+            "adapter": meta["adapter"],
+            "adapter_sha256": meta["adapter_sha256"],
+            "prompt_sha": meta["prompt_sha"],
+            "fit_report": str(fit_report),
+            "fit_report_sha256": sha256_file(fit_report),
+            "fit_data": meta["data"],
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "n": {},
+            "nll_before": {},
+            "nll_after": {},
+            "skipped": {},
+        },
+    }
     for kind in ("binary", "multiclass", "multilabel"):
         items = _items(rep["predictions"], kind)
         cal["fit"]["n"][kind] = len(items)
@@ -93,8 +111,11 @@ def fit(fit_report, threshold_report=None, out=None):
         vrep = _load_report(threshold_report, "validation")
         if any(vrep["meta"][k] != meta[k] for k in ("revision", "adapter_sha256", "prompt_sha")):
             raise ValueError("threshold report comes from a different model/adapter/prompt than the fit report")
-        cal["fit"] |= {"threshold_report": str(threshold_report), "threshold_report_sha256": sha256_file(threshold_report),
-                       "threshold_rule": "max F1 on validation after temperature scaling"}
+        cal["fit"] |= {
+            "threshold_report": str(threshold_report),
+            "threshold_report_sha256": sha256_file(threshold_report),
+            "threshold_rule": "max F1 on validation after temperature scaling",
+        }
         for kind in ("binary", "multilabel"):
             items = _items(vrep["predictions"], kind)
             if len(items) >= MIN_N and any(y for _, y in items):

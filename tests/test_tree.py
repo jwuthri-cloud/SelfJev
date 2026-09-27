@@ -3,7 +3,9 @@
 A tiny randomly initialised Qwen3ForCausalLM (same code path as the real checkpoints, CPU, fp32) keeps these fast;
 random weights say nothing about quality. The last test loads the real Qwen3-Reranker-0.6B.
 """
+
 import json
+from pathlib import Path
 
 import pytest
 import torch
@@ -15,13 +17,22 @@ from selfjev.model import MODEL_ID, MODEL_REVISION, NO_ID, YES_ID, InputTooLong
 from selfjev.schemas import parse_request
 from selfjev.tree import TreeScorer, build_tree, leaf_paths, tree_mask
 
-REQ = json.load(open("examples/request.json"))
+REQ = json.loads(Path("examples/request.json").read_text())
 
 
 def tiny_lm(seed=0):
     torch.manual_seed(seed)
-    cfg = Qwen3Config(vocab_size=151669, hidden_size=32, intermediate_size=64, num_hidden_layers=2, num_attention_heads=4,
-                      num_key_value_heads=2, head_dim=8, max_position_embeddings=4096, tie_word_embeddings=False)
+    cfg = Qwen3Config(
+        vocab_size=151669,
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=8,
+        max_position_embeddings=4096,
+        tie_word_embeddings=False,
+    )
     return Qwen3ForCausalLM(cfg).eval()
 
 
@@ -114,7 +125,7 @@ def test_state_is_read_once_however_many_questions(tiny):
 
 def test_overlength_is_an_error(tiny):
     tiny.max_length = 40
-    with pytest.raises(InputTooLong, match="question '(urgent|team|tags)'"):
+    with pytest.raises(InputTooLong, match=r"question '(urgent|team|tags)'"):
         classify(tiny, REQ)
     tiny.max_length = 32768
 
@@ -149,20 +160,37 @@ def test_real_reranker_tree_equals_standalone():
     assert max(abs(a - b) for a, b in zip(packed, cached)) < 1e-2
     if want is None:  # on an accelerator, run the standalone sequences there too
         with torch.no_grad():
-            want = [(lambda z: (z[0] - z[1]).item())(sc.model.lm(input_ids=torch.tensor([[trees[0]["ids"][i] for i in p]], device=sc.device))
-                                                        .logits[0, -1, [YES_ID, NO_ID]]) for p in leaf_paths(trees[0])]
+            want = [
+                (lambda z: (z[0] - z[1]).item())(
+                    sc.model.lm(input_ids=torch.tensor([[trees[0]["ids"][i] for i in p]], device=sc.device)).logits[0, -1, [YES_ID, NO_ID]]
+                )
+                for p in leaf_paths(trees[0])
+            ]
     assert max(abs(a - b) for a, b in zip(want, cached)) < 1e-2
 
 
 def test_train_tree_entrypoint_runs_end_to_end(tmp_path):
     from selfjev.train_tree import train
-    rows = [json.loads(line) for line in open("data/dev.jsonl")]
+
+    with open("data/dev.jsonl") as f:
+        rows = [json.loads(line) for line in f]
     for i, r in enumerate(rows):
         r["split"] = "train" if i % 3 else "validation"
     data = tmp_path / "d.jsonl"
     data.write_text("\n".join(json.dumps(r) for r in rows))
-    meta = train(None, model_id=MODEL_ID, revision=MODEL_REVISION, train_files=[str(data)], val_files=[str(data)],
-                 out_dir=str(tmp_path / "run"), max_steps=3, eval_every=3, max_batch_tokens=4096, grad_accum=1, dtype="float32",
-                 max_length=1024)
+    meta = train(
+        None,
+        model_id=MODEL_ID,
+        revision=MODEL_REVISION,
+        train_files=[str(data)],
+        val_files=[str(data)],
+        out_dir=str(tmp_path / "run"),
+        max_steps=3,
+        eval_every=3,
+        max_batch_tokens=4096,
+        grad_accum=1,
+        dtype="float32",
+        max_length=1024,
+    )
     assert meta["steps"] == 3 and meta["lora"]["trainable_params"] == 4_587_520
     assert meta["reload_check"]["max_abs_score_diff"] < 1e-3 and (tmp_path / "run/adapter/adapter_model.safetensors").exists()

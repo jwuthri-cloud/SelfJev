@@ -1,4 +1,5 @@
 """selfjev: classify | eval | calibrate | compare | bench | serve | train | train-tree | finetune | rlcd"""
+
 import argparse
 import json
 import sys
@@ -11,11 +12,28 @@ from .model import MODEL_ID, MODEL_REVISION
 def _scorer(a):
     if a.tree:
         from .tree import TreeScorer
-        return TreeScorer(a.model, a.revision, adapter=a.adapter, device=a.device, dtype=a.dtype, max_length=a.max_length,
-                          max_batch_tokens=a.max_batch_tokens, merge=a.merge)
+
+        return TreeScorer(
+            a.model,
+            a.revision,
+            adapter=a.adapter,
+            device=a.device,
+            dtype=a.dtype,
+            max_length=a.max_length,
+            max_batch_tokens=a.max_batch_tokens,
+            merge=a.merge,
+        )
     from .model import Scorer
-    return Scorer(adapter=a.adapter, device=a.device, dtype=a.dtype, max_length=a.max_length, max_batch_tokens=a.max_batch_tokens,
-                  model_id=a.model, revision=a.revision)
+
+    return Scorer(
+        adapter=a.adapter,
+        device=a.device,
+        dtype=a.dtype,
+        max_length=a.max_length,
+        max_batch_tokens=a.max_batch_tokens,
+        model_id=a.model,
+        revision=a.revision,
+    )
 
 
 def _calibration(a, scorer):
@@ -23,19 +41,26 @@ def _calibration(a, scorer):
         return None
     from . import calibration
     from .formatting import prompt_sha
+
     return calibration.load(a.calibration, scorer.meta, scorer.meta.get("prompt_sha") or prompt_sha(a.prompt))
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="selfjev", description="Instruction-conditioned binary / multiclass / multilabel decisions "
-                                 "with open Qwen models: the stock Qwen3-Reranker backend (default) or the shared-prefix tree "
-                                 "(--tree). The default model, selfjev-4b, is trained by `selfjev finetune` and served by "
-                                 "`python -m selfjev.qwen35_tree serve`")
+    ap = argparse.ArgumentParser(
+        prog="selfjev",
+        description="Instruction-conditioned binary / multiclass / multilabel decisions "
+        "with open Qwen models: the stock Qwen3-Reranker backend (default) or the shared-prefix tree "
+        "(--tree). The default model, selfjev-4b, is trained by `selfjev finetune` and served by "
+        "`python -m selfjev.qwen35_tree serve`",
+    )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def model_args(p):
-        p.add_argument("--tree", action="store_true", help="shared-prefix tree scorer (tree.py) on --model/--revision; "
-                                                                "--adapter from `selfjev train-tree`")
+        p.add_argument(
+            "--tree",
+            action="store_true",
+            help="shared-prefix tree scorer (tree.py) on --model/--revision; --adapter from `selfjev train-tree`",
+        )
         p.add_argument("--model", default=MODEL_ID, help="stock backend: Qwen3-Reranker checkpoint (0.6B / 4B / 8B)")
         p.add_argument("--revision", default=MODEL_REVISION, help="stock backend: pinned HF commit for --model")
         p.add_argument("--merge", action="store_true", help="--tree: merge the LoRA adapter into the weights (inference speed)")
@@ -74,19 +99,25 @@ def main(argv=None):
     model_args(p)
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
-    p.add_argument("--options-in-question", action="store_true", help="list every option in the question text "
-                   "(required for adapters trained on data/ova/)")
+    p.add_argument(
+        "--options-in-question",
+        action="store_true",
+        help="list every option in the question text (required for adapters trained on data/ova/)",
+    )
     p = sub.add_parser("train", help="stock backend: LoRA training from a JSON config")
     p.add_argument("config")
     p.add_argument("--set", nargs="*", default=[], metavar="KEY=JSON", help="override config keys, e.g. max_steps=20")
     p = sub.add_parser("train-tree", help="shared-prefix tree scorer: LoRA on any Qwen3-architecture causal LM")
     p.add_argument("config")
     p.add_argument("--set", nargs="*", default=[], metavar="KEY=JSON", help="override config keys, e.g. max_steps=20")
+
     def finetune_args(p, rlcd=False):  # selfjev.finetune: the Qwen3.5 tree recipe on your JSONL data, one CUDA GPU
         p.add_argument("--data", required=True, help="training JSONL (state, question, target per line)")
         p.add_argument("--val", help="validation JSONL (default: 5%% of --data, at most 1,000 questions)")
         p.add_argument("--out", required=True, help="run directory: adapter/, adapter_last/, train_meta.json")
-        p.add_argument("--init", required=rlcd, help="adapter to start from, e.g. weights/selfjev_4b" + (" or a finetune run" if rlcd else ""))
+        p.add_argument(
+            "--init", required=rlcd, help="adapter to start from, e.g. weights/selfjev_4b" + (" or a finetune run" if rlcd else "")
+        )
         p.add_argument("--base", default="qwen35_4b", choices=["qwen35_4b", "qwen35"], help="Qwen3.5-4B, or Qwen3.5-2B for quick runs")
         p.add_argument("--no-options-in-question", action="store_true", help="do not list every option in the question text")
         p.add_argument("--epochs", type=int, default=1)
@@ -97,61 +128,115 @@ def main(argv=None):
         p.add_argument("--grad-accum", type=int, default=4)
         p.add_argument("--eval-every", type=int, default=150)
         p.add_argument("--seed", type=int, default=13)
-        p.add_argument("--soft-weight", type=float, default=0.5, help="rows with \"soft\" (a teacher's probabilities, e.g. "
-                       "scripts/jev_soft_targets.py) train on (1 - w) x label + w x soft")
+        p.add_argument(
+            "--soft-weight",
+            type=float,
+            default=0.5,
+            help='rows with "soft" (a teacher\'s probabilities, e.g. scripts/jev_soft_targets.py) train on (1 - w) x label + w x soft',
+        )
         if rlcd:
-            p.add_argument("--reward", default="log=1,brier=1,spherical=1", help="weighted rewards: log, brier, spherical "
-                           "(proper scoring rules), accuracy (not proper), confident_miss (a cost per decision >= 0.9 sure and wrong)")
+            p.add_argument(
+                "--reward",
+                default="log=1,brier=1,spherical=1",
+                help="weighted rewards: log, brier, spherical "
+                "(proper scoring rules), accuracy (not proper), confident_miss (a cost per decision >= 0.9 sure and wrong)",
+            )
             p.add_argument("--samples", type=int, default=8, help="sampled reports per question")
             p.add_argument("--sigma", type=float, default=0.3, help="sd of the Gaussian around the logits")
             p.add_argument("--beta", type=float, default=0.05, help="KL penalty to the --init model")
 
     finetune_args(sub.add_parser("finetune", help="LoRA fine-tune the best recipe (Qwen3.5 + shared-prefix tree) on your data"))
-    finetune_args(sub.add_parser("rlcd", help="calibration training with proper scoring rules (Jev's \"RLCD\"), from a fine-tuned adapter"), rlcd=True)
+    finetune_args(
+        sub.add_parser("rlcd", help='calibration training with proper scoring rules (Jev\'s "RLCD"), from a fine-tuned adapter'), rlcd=True
+    )
     a = ap.parse_args(argv)
 
     if a.cmd == "classify":
         from .classify import classify
+
         scorer = _scorer(a)
-        req = json.load(sys.stdin if a.request == "-" else open(a.request))
+        req = json.load(sys.stdin) if a.request == "-" else json.loads(Path(a.request).read_text())
         print(json.dumps(classify(scorer, req, _calibration(a, scorer), a.prompt), indent=2))
     elif a.cmd == "eval":
         from .evaluate import run
+
         scorer = _scorer(a)
         rep = run(scorer, a.data, a.split, _calibration(a, scorer), a.out, a.limit, a.prompt)
         print((Path(a.out) / "report.md").read_text())
         print(f"n={rep['meta']['n']} -> {a.out}/report.json")
     elif a.cmd == "calibrate":
         from .calibration import fit
+
         print(json.dumps(fit(a.fit, a.thresholds, a.out), indent=2))
     elif a.cmd == "compare":
         from .evaluate import compare
+
         md = compare([json.loads(Path(r).read_text()) for r in a.reports], a.names or [Path(r).parent.name for r in a.reports])
         if a.out:
             Path(a.out).write_text(md)
         print(md)
     elif a.cmd == "bench":
         from .benchmark import default_grid, run
+
         grid = default_grid(tuple(map(int, a.lengths.split(","))), tuple(map(int, a.questions.split(","))))
-        rep = run(a.adapter, a.device, a.dtype, grid, a.repeats, max_batch_tokens=a.max_batch_tokens, out_dir=a.out,
-                  model_id=a.model, revision=a.revision, tree=a.tree)
+        rep = run(
+            a.adapter,
+            a.device,
+            a.dtype,
+            grid,
+            a.repeats,
+            max_batch_tokens=a.max_batch_tokens,
+            out_dir=a.out,
+            model_id=a.model,
+            revision=a.revision,
+            tree=a.tree,
+        )
         print((Path(a.out) / "bench.md").read_text())
     elif a.cmd == "serve":
         from .server import serve
+
         scorer = _scorer(a)
         serve(scorer, a.host, a.port, _calibration(a, scorer), a.prompt, a.options_in_question)
     elif a.cmd == "train":
         from .train import train
+
         train(a.config, **{k: json.loads(v) for k, v in (s.split("=", 1) for s in a.set)})
     elif a.cmd == "train-tree":
         from .train_tree import train
+
         train(a.config, **{k: json.loads(v) for k, v in (s.split("=", 1) for s in a.set)})
     elif a.cmd in ("finetune", "rlcd"):
         from .finetune import train
-        extra = {"reward_weights": {k: float(v) for k, v in (x.split("=") for x in a.reward.split(","))}, "samples": a.samples,
-                 "sigma": a.sigma, "beta": a.beta} if a.cmd == "rlcd" else {}
-        train(a.cmd, a.data, a.out, a.val, a.init, a.base, not a.no_options_in_question, a.epochs, a.lr, a.lora_r, a.max_length,
-              a.batch_tokens, a.grad_accum, a.eval_every, a.seed, soft_weight=a.soft_weight, **extra)
+
+        extra = (
+            {
+                "reward_weights": {k: float(v) for k, v in (x.split("=") for x in a.reward.split(","))},
+                "samples": a.samples,
+                "sigma": a.sigma,
+                "beta": a.beta,
+            }
+            if a.cmd == "rlcd"
+            else {}
+        )
+        train(
+            a.cmd,
+            a.data,
+            a.out,
+            a.val,
+            a.init,
+            a.base,
+            not a.no_options_in_question,
+            a.epochs,
+            a.lr,
+            a.lora_r,
+            a.max_length,
+            a.batch_tokens,
+            a.grad_accum,
+            a.eval_every,
+            a.seed,
+            soft_weight=a.soft_weight,
+            **extra,
+        )
 
 
 if __name__ == "__main__":

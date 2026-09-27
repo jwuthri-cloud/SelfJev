@@ -22,8 +22,31 @@ data = [
     "datasets>=5.0.1",
 ]
 dev = [
+    "pre-commit>=4.3.0",
     "pytest>=9.1.1",
+    "ruff==0.16.9",
 ]
 
 [project.scripts]
 selfjev = "selfjev.cli:main"
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+extend-exclude = ["reports", "runs", "site"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PIE", "RUF"]
+ignore = [
+    "E731",   # small lambdas as local helpers are idiomatic here
+    "B905",   # zip() without strict= : lengths are checked where it matters
+    "RUF001", "RUF002", "RUF003",  # typographic characters (×, –, …) in strings and comments are deliberate
+    "SIM108", # ternaries are not always clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]  # sys.path setup before local imports
+"tests/*" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
