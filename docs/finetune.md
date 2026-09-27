@@ -12,15 +12,15 @@ uv run selfjev finetune --data my_train.jsonl --out runs/mine --init weights/sel
 uv run selfjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
 
 # 3. serve the result (same option-list transform as in training)
-uv run python -m selfjev.qwen35_tree serve --adapter runs/mine_rlcd/adapter --options-in-question
+uv run selfjev serve --adapter runs/mine_rlcd/adapter
 ```
 
 The tree server scores exactly like standalone sequences (CPU test on a tiny model) but has not been timed on a GPU yet.
-The vLLM path (`python -m selfjev.vllm_qwen35 merge`, then `serve`) is the one measured on the real model: same
+The vLLM path (`selfjev merge`, then `selfjev serve --engine vllm`) is the one measured on the real model: same
 accuracy, fast for one question, slow for many ([speed](speed.md)).
 
 Code: [src/selfjev/finetune.py](../src/selfjev/finetune.py). Tests (CPU, a tiny random model):
-[tests/test_finetune.py](../tests/test_finetune.py).
+[tests/training/test_finetune.py](../tests/training/test_finetune.py).
 
 ## Part 1: fine-tune vs RLCD in plain words
 
@@ -164,7 +164,7 @@ to train a fresh adapter. `--base qwen35` uses Qwen3.5-2B for quick runs.
 - `--beta` (0.05): the KL penalty to the starting model's probabilities, computed once before training.
 - `--lr` defaults to 5e-5 (fine-tune: 2e-4); the best checkpoint is the one with the lowest validation Brier score.
 
-`tests/test_finetune.py` checks the property that matters: trained only with this objective, on a question whose
+`tests/training/test_finetune.py` checks the property that matters: trained only with this objective, on a question whose
 answer is "yes" 70% of the time, the model learns to say 70% (binary), and 60% for a three-way choice with a
 60/30/10 split.
 

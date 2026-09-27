@@ -62,7 +62,7 @@ Each candidate still scores exactly like the standalone `text + question + candi
 tiny model, and on the real model: scores within 0.004, gradient cosine 0.99997 in fp32). Training this way reads the
 text once per state, so texts up to 8K tokens fit where full-sequence training had to stop at 2K; that alone is worth
 +1.1 on eval2. Serving: `qwen35_tree.TreeServer` (the same tree, forward only), the forked-cache transformers path
-(`challengers.ChallengerScorer`), or vLLM (`vllm_qwen35.py`), which is exact but slow with many questions
+(`selfjev.engine.qwen35.Qwen35Scorer`), or vLLM (`selfjev.engine.vllm`), which is exact but slow with many questions
 ([speed](speed.md#qwen35-on-vllm-2026-09-25-l40s)).
 
 ## From scores to typed answers

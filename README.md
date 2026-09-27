@@ -18,7 +18,7 @@ the Markdown files in [docs/](docs/).
 | Jev (`typesafe/jev`, API) | **97.2** | 82.7 | 92.5 |
 | **`selfjev-4b`, the default**: Qwen3.5-4B + LoRA r64 trained from scratch with the shared-prefix tree on all 80K non-test questions (texts up to 16K), half-weight Jev probabilities as soft targets, options in the question ([weights/selfjev_4b](weights/selfjev_4b/model.json)) | **95.8** | 83.8 | **93.1** |
 | Qwen3.5-4B + LoRA r64, trained with the shared-prefix tree, round-2b + round-3 data, options in the question (`qwen35_4b_tree`, the previous default) | 95.6 | **84.4** | 82.1 |
-| Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, same data (`tree_4b_combo`, the fastest to serve) | 94.5 | 82.7 | |
+| Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, same data (`tree_4b_combo`, archived) | 94.5 | 82.7 | |
 | Qwen3-4B-Instruct-2507 + LoRA r64, shared-prefix tree, round-2b data (`tree_4b_instruct_r2x64`) | 92.7 | 82.7 | |
 | Qwen3-Reranker-4B + LoRA, shared-prefix tree, round-1 data (`tree_4b`) | 85.1 | 81.6 | |
 | Qwen3-Reranker-0.6B + LoRA, stock pairs (`lora_pilot`) | 68.8 | 73.5 | |
@@ -39,11 +39,10 @@ the Markdown files in [docs/](docs/).
 ## Quick start
 
 ```bash
-uv sync && git lfs pull                                              # code + the best adapters in weights/
-uv run pytest -q                                                     # CPU tests (some download the 0.6B model)
-uv run selfjev classify examples/request.json                           # untrained Qwen3-Reranker-0.6B, runs anywhere
-# on a CUDA GPU: the best model as an HTTP server (POST /classify, POST /api/alpha/decisions)
-uv run python -m selfjev.qwen35_tree serve --adapter weights/selfjev_4b --options-in-question
+uv sync --group dev && git lfs pull                                  # code + the adapters in weights/
+uv run pytest -q                                                     # CPU tests, ~20 s
+# on a CUDA GPU: selfjev-4b as an HTTP server with Jev's API (POST /api/alpha/decisions)
+uv run selfjev serve --host 0.0.0.0 --port 8000
 # fine-tune on your data, then RLCD
 uv run selfjev finetune --data my_train.jsonl --out runs/mine --init weights/selfjev_4b
 uv run selfjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
