@@ -6,7 +6,7 @@ AWS box, never the laptop) and write a run directory you can serve directly.
 
 ```bash
 # 1. supervised fine-tune, from scratch or on top of the best model
-uv run pjev finetune --data my_train.jsonl --out runs/mine --init weights/qwen35_4b_tree
+uv run pjev finetune --data my_train.jsonl --out runs/mine --init weights/selfjev_4b
 
 # 2. RLCD on top of it
 uv run pjev rlcd --data my_train.jsonl --out runs/mine_rlcd --init runs/mine/adapter
@@ -146,9 +146,10 @@ the adapter into [weights/](../weights/README.md).
 ## finetune
 
 Cross-entropy on the targets (softmax over a multiclass question's candidates, a sigmoid per yes/no decision), the
-recipe that produced `weights/qwen35_4b_tree`: LoRA r64 on the attention and DeltaNet projections, lr 2e-4 with 5%
+recipe that produced `weights/qwen35_4b_tree` and, from scratch on all the non-test data with texts up to 16K tokens and
+Jev's probabilities as soft targets, the default `weights/selfjev_4b`: LoRA r64 on the attention and DeltaNet projections, lr 2e-4 with 5%
 warm-up and linear decay, batches of whole states packed to 8,192 tokens × 4 accumulation steps, per-layer activation
-checkpointing. Start from `--init weights/qwen35_4b_tree` to adapt the best model to a new domain, or without `--init`
+checkpointing. Start from `--init weights/selfjev_4b` to adapt the default model to a new domain, or without `--init`
 to train a fresh adapter. `--base qwen35` uses Qwen3.5-2B for quick runs.
 
 ## rlcd settings

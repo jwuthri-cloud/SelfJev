@@ -1,7 +1,7 @@
 [project]
 name = "personal-jev"
 version = "0.1.0"
-description = "Instruction-conditioned binary/multiclass/multilabel classification with Qwen3-Reranker-0.6B"
+description = "Instruction-conditioned binary/multiclass/multilabel decisions with open Qwen models (default: selfjev-4b, Qwen3.5-4B + LoRA, shared-prefix tree)"
 authors = [
     { name = "julien-connectly", email = "julien@connectly.ai" }
 ]
@@ -23,9 +23,6 @@ data = [
 ]
 dev = [
     "pytest>=9.1.1",
-]
-docs = [
-    "openai>=3.19.0",
 ]
 
 [project.scripts]

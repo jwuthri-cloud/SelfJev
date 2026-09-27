@@ -103,27 +103,3 @@ native schema.
 | `noul` | `{"true": …, "false": …}` | 2-way choice between the two descriptions | `noul` = P(true) |
 | `noul` | none | our binary yes/no | `noul` = p_yes |
 | `score` | `[level_0, …, level_k]` (ordered) | distribution over levels | `probabilities` per level; `score` = Σ pᵢ·i/k in [0, 1] |
-
-## As comics
-
-Generated with OpenAI `gpt-image-2.5-flare` by [scripts/make_comics.py](../scripts/make_comics.py) (all prompts are in
-the script). They describe the first 0.6B model; every number on them is measured.
-
-=== "Deep dive"
-
-    ![Scoring](comics/deep-1-scoring.png){ loading=lazy }
-    ![Data](comics/deep-2-data.png){ loading=lazy }
-    ![LoRA training loop](comics/deep-3-training.png){ loading=lazy }
-    ![Calibration, results and limits](comics/deep-4-results.png){ loading=lazy }
-
-=== "Friendlier tour"
-
-    ![The judge](comics/friendly-1-the-judge.png){ loading=lazy }
-    ![The study library](comics/friendly-2-the-library.png){ loading=lazy }
-    ![Tiny knobs](comics/friendly-3-tiny-knobs.png){ loading=lazy }
-    ![The report card](comics/friendly-4-report-card.png){ loading=lazy }
-
-=== "Qwen + LoRA, step by step"
-
-    ![How the text reaches Qwen](comics/lora-1-text-to-qwen.png){ loading=lazy }
-    ![Where LoRA plugs in](comics/lora-2-where-lora-plugs-in.png){ loading=lazy }
