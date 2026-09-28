@@ -3,8 +3,10 @@
 </p>
 
 <p align="center">
+  <a href="https://www.selfjev.dev/"><strong>Website</strong></a> &nbsp; · &nbsp;
   <a href="#get-started"><strong>Get started</strong></a> &nbsp; · &nbsp;
-  <a href="https://huggingface.co/Jwuthrich/selfjev-4b-merged"><strong>Download the model</strong></a> &nbsp; · &nbsp;
+  <a href="https://pypi.org/project/selfjev/"><strong>PyPI</strong></a> &nbsp; · &nbsp;
+  <a href="https://huggingface.co/Jwuthrich/selfjev-4b"><strong>Download the model</strong></a> &nbsp; · &nbsp;
   <a href="https://huggingface.co/datasets/Jwuthrich/selfjev-decision-bench"><strong>Evaluation dataset</strong></a> &nbsp; · &nbsp;
   <a href="docs/api.md"><strong>API reference</strong></a> &nbsp; · &nbsp;
   <a href="https://jwuthri.github.io/SelfJev/"><strong>Research notebook</strong></a>
@@ -37,41 +39,69 @@ You define the questions, options and criteria. SelfJev evaluates them against y
 
 ## Get started
 
+SelfJev is self-hosted: you run the model server on your own GPU, and your application talks to it. There is no SelfJev cloud.
+
 ### 1. Start your server
 
-On a Linux NVIDIA GPU machine with Python 3.12+, Git and [uv](https://docs.astral.sh/uv/):
+On a Linux machine with an NVIDIA GPU and Python 3.12+:
 
 ```bash
-GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/Jwuthri/SelfJev.git
-cd SelfJev
-uv sync --frozen --no-dev --extra serve --extra gpu
-
-# Download the trained adapter. The pinned base model downloads at first start.
-uv run --no-sync hf download Jwuthrich/selfjev-4b \
-  adapter_model.safetensors adapter_config.json model.json \
-  --local-dir weights/selfjev_4b
+pip install "selfjev[serve,gpu]"
 
 # Choose your own server secret; use the same value in the client.
-export SELFJEV_API_KEYS="replace-with-your-long-random-secret"
-uv run --no-sync selfjev serve --host 127.0.0.1 --port 8000
+export SELFJEV_API_KEYS="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+selfjev serve --host 0.0.0.0 --port 8000
 ```
 
-A **24 GB NVIDIA GPU, 16–32 GB host RAM and 50 GB free disk** is a practical starting configuration, not a measured minimum. Memory use depends on text length, question count and concurrency. [Hardware guide →](website/content/hardware.md)
+The first start downloads the [selfjev-4b adapter](https://huggingface.co/Jwuthrich/selfjev-4b) (230 MB) and its pinned Qwen3.5-4B base from Hugging Face. `--adapter <dir or Hugging Face repo>` serves another adapter, such as your own fine-tune.
 
-### 2. Ask your questions
+A **24 GB NVIDIA GPU, 16–32 GB host RAM and 50 GB free disk** is a practical starting configuration, not a measured minimum. Memory use depends on text length, question count and concurrency. [Hardware guide →](https://www.selfjev.dev/docs/hardware) · Docker, AWS, Runpod and GCP: [deployment guide →](docs/deploy.md)
 
-Install the lightweight SDK in your application environment:
+| Install | For |
+|---|---|
+| `pip install selfjev` | the client only (httpx + pydantic, no torch) |
+| `pip install "selfjev[serve,gpu]"` | the model server (`gpu`: fast kernels on Linux CUDA) |
+| `pip install "selfjev[train]"` | `selfjev finetune` and `selfjev rlcd` |
+| `pip install "selfjev[deploy]"` | `selfjev deploy aws` |
+
+### 2a. Already using Jev? Change two environment variables
+
+Code written for TypeSafe's Python SDK (`typesafe-sdk`) runs unchanged against your server:
 
 ```bash
-pip install "selfjev @ git+https://github.com/Jwuthri/SelfJev.git"
+export TYPESAFE_BASE_URL="http://your-selfjev-host:8000"
+export TYPESAFE_API_KEY="the key you set in SELFJEV_API_KEYS"
+```
+
+```python
+from typesafe_sdk import Choice, Noul, TypeSafeClient
+
+client = TypeSafeClient()  # reads the two variables above
+res = client.system_one(
+    state="I was charged twice. Please refund the duplicate payment.",
+    questions={
+        "refund": Noul(instructions="Does the customer want a refund?"),
+        "team": Choice(instructions="Which team?", criteria={"billing": "payments and refunds", "support": "technical issues"}),
+    },
+)
+```
+
+The default model name `jev-latest` is answered by selfjev-4b; `client.models.list()`, errors and retries behave as they do against Jev. OpenRouter's decisions path (`/api/alpha/decisions`) is served too.
+
+### 2b. Or use the selfjev client
+
+It adds `Multi` (select all that apply) and the fine-tuning API:
+
+```bash
+pip install selfjev
 ```
 
 ```python
 from selfjev import Choice, Multi, Noul, SelfJev
 
 client = SelfJev(
-    base_url="http://localhost:8000",
-    api_key="replace-with-your-long-random-secret",
+    base_url="http://your-selfjev-host:8000",
+    api_key="the key you set in SELFJEV_API_KEYS",
 )
 
 result = client.system_one(
@@ -101,7 +131,7 @@ print(result.choices["team"].choice)  # Selected team
 print(result.multis["topics"].multi)  # Selected topics
 ```
 
-`AsyncSelfJev` supports the same interface with `await`. Already using Jev? Point the compatible client at your SelfJev server and use its API key. [Requests, responses and authentication →](docs/api.md)
+`AsyncSelfJev` supports the same interface with `await`; `SELFJEV_BASE_URL` and `SELFJEV_API_KEY` work in place of the arguments. [Requests, responses and authentication →](docs/api.md)
 
 ## Read once. Decide across questions.
 
