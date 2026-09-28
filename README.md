@@ -106,6 +106,21 @@ uv run pre-commit install              # ruff check + format on every commit (CI
 4. Scores become typed answers: sigmoid for binary, softmax within a question for multiclass, per-candidate sigmoid for
    multilabel.
 
+## Marketing website and usage docs
+
+The Next.js site is in [`website/`](website/README.md): a product overview, report-backed benchmark and latency
+explorers, architecture, experiment history, and ten practical usage/deployment guides.
+
+```bash
+cd website
+npm ci
+npm run dev                         # http://127.0.0.1:3000
+npm run check                       # production build + exported-link audit
+```
+
+The production output is static (`website/out/`), so it needs no GPU or Node server. This is separate from the
+existing GitHub Pages research notebook below; no hosted deployment has been changed.
+
 ## Docs site
 
 Built with [Zensical](https://zensical.org) from `docs/` and `zensical.toml`; `.github/workflows/docs.yml` deploys it

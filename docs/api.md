@@ -25,6 +25,12 @@ need `selfjev serve --fine-tuning`.
 Authentication: `Authorization: Bearer <key>`. A self-hosted server without configured keys (`SELFJEV_API_KEYS`) accepts
 every request.
 
+You create the server key yourself; it does not come from Hugging Face or TypeSafe. Generate a long random value,
+for example `python -c 'import secrets; print(secrets.token_urlsafe(32))'`, set it as `SELFJEV_API_KEYS` on the server,
+then give the same value to the client through `api_key=` or `SELFJEV_API_KEY`. The server accepts any key in its
+comma-separated list. `selfjev deploy aws up` generates a key if `--api-key` is omitted, prints it once, and saves it
+in `~/.selfjev/deployments/<name>.json`.
+
 ## Request
 
 ```json

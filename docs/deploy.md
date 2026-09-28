@@ -14,6 +14,8 @@ SELFJEV_API_KEYS=my-key uv run selfjev serve --host 0.0.0.0 --port 8000
 
 The base model (about 9 GB) downloads from Hugging Face on first start, at a pinned revision. Without
 `SELFJEV_API_KEYS` (comma-separated) the server accepts every request, which suits a laptop or a private network.
+The `my-key` shown above is a placeholder: choose a long random secret and pass the same value as `api_key` in the SDK
+or `SELFJEV_API_KEY` in your client environment. Hugging Face tokens and Jev API keys are unrelated to this secret.
 
 Useful flags: `--max-length` (state plus longest question, default 32,768 tokens), `--max-batch-tokens` (tokens packed
 per forward pass), `--calibration` (temperatures from `selfjev calibrate`), `--engine vllm --model-dir <merged>` (vLLM on
