@@ -7,6 +7,15 @@ endpoints come on top.
 Implemented by `selfjev serve` (server: `src/selfjev/server/`, SDK: `src/selfjev/client.py`). The fine-tuning routes
 need `selfjev serve --fine-tuning`.
 
+## With TypeSafe's SDK
+
+TypeSafe's Python SDK (`pip install typesafe-sdk`) works against a selfjev server with two environment variables and no
+code change: `TYPESAFE_BASE_URL` (your server) and `TYPESAFE_API_KEY` (a key from `SELFJEV_API_KEYS`). Its default model,
+`jev-latest`, is answered by `selfjev-4b`; `client.models.list()` reads the `models` field of `GET /v1/models`. The server
+takes Jev's whole question schema: `instructions` may be left out (the criteria carry the question), instructions and
+criteria may be JSON (read as JSON text, like `state`), and a `noul` may describe only one side (the other becomes its
+negation). `tests/server/test_typesafe_sdk.py` runs the real SDK against the server in CI.
+
 ## Endpoints
 
 | method | path | what |

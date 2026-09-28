@@ -185,7 +185,10 @@ def create_app(
     async def models():
         keep = ("model", "revision", "adapter", "adapter_sha256", "prompt", "max_length")
         meta = {k: scorer.meta.get(k) for k in keep}
-        return {"object": "list", "data": [{"id": m, "object": "model", "owned_by": "selfjev", "meta": meta} for m in served]}
+        data = [{"id": m, "object": "model", "owned_by": "selfjev", "meta": meta} for m in served]
+        # `models` is TypeSafe's shape (their SDK's models.list()); `data` is OpenAI's, read by selfjev's SDK.
+        jev = [{"name": m, "description": f"selfjev: {m}, self-hosted", "release_date": ""} for m in [*served, *sorted(JEV_ALIASES)]]
+        return {"object": "list", "data": data, "models": jev}
 
     @app.get("/health", tags=["meta"])
     async def health():

@@ -5,11 +5,34 @@ description = "selfjev: an open decisions model (selfjev-4b) with Jev's API. SDK
 authors = [
     { name = "julien-connectly", email = "julien@connectly.ai" }
 ]
+readme = "README.pypi.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
+keywords = ["decisions", "classification", "llm", "llm-evaluation", "guardrails", "lora", "qwen", "jev"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 dependencies = [  # the SDK: `pip install selfjev`
     "httpx>=0.28",
     "pydantic>=2.10",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Jwuthri/SelfJev"
+Documentation = "https://github.com/Jwuthri/SelfJev/blob/master/docs/api.md"
+Source = "https://github.com/Jwuthri/SelfJev"
+Issues = "https://github.com/Jwuthri/SelfJev/issues"
+Model = "https://huggingface.co/Jwuthrich/selfjev-4b"
+Research = "https://jwuthri.github.io/SelfJev/"
 
 [project.optional-dependencies]
 serve = [  # `pip install selfjev[serve]`: the engine and the HTTP server (a CUDA GPU for real use)
@@ -19,6 +42,7 @@ serve = [  # `pip install selfjev[serve]`: the engine and the HTTP server (a CUD
     "safetensors>=0.8.0",
     "torch>=2.14.0",
     "transformers>=5.17.0",
+    "huggingface_hub>=1.0",  # downloads the adapter when there is no checkout (transformers needs it anyway)
     "uvicorn[standard]>=0.32",
 ]
 train = [  # `pip install selfjev[train]`: finetune and RLCD
@@ -44,9 +68,10 @@ data = [
     "datasets>=5.0.1",
 ]
 dev = [
-    "selfjev[serve,train]",
+    "selfjev[serve,train,deploy]",  # deploy too: a plain `uv run` must not uninstall boto3 under a running deploy
     "pre-commit>=4.3.0",
     "pytest>=9.1.1",
+    "typesafe-sdk>=0.7.2",  # tests/server/test_typesafe_sdk.py: TypeSafe's own client against our server
     "ruff==0.16.9",
 ]
 

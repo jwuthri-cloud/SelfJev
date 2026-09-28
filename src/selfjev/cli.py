@@ -8,6 +8,24 @@ import time
 from pathlib import Path
 
 DEFAULT_ADAPTER = "weights/selfjev_4b"
+HUB_ADAPTER = "Jwuthrich/selfjev-4b"  # what DEFAULT_ADAPTER holds, for a pip install with no checkout
+ADAPTER_FILES = ["adapter_model.safetensors", "adapter_config.json", "model.json"]
+# The first module a command imports from each extra, and the extra that provides it.
+EXTRAS = dict.fromkeys(("fastapi", "uvicorn", "multipart", "torch", "transformers", "peft", "safetensors", "huggingface_hub"), "serve")
+EXTRAS |= {"boto3": "deploy"}
+
+
+def _adapter(path):
+    """A local adapter directory, or a Hugging Face repo id downloaded to the HF cache (DEFAULT_ADAPTER → HUB_ADAPTER)."""
+    if not path or Path(path).exists():
+        return path
+    repo = HUB_ADAPTER if path == DEFAULT_ADAPTER else path
+    if repo.count("/") != 1 or repo.startswith((".", "/", "~")):
+        raise SystemExit(f"adapter not found: {path}")
+    from huggingface_hub import snapshot_download
+
+    print(f"adapter {path} not found locally; downloading {repo} from Hugging Face", file=sys.stderr)
+    return snapshot_download(repo, allow_patterns=ADAPTER_FILES)
 
 
 def _scorer(a):
@@ -30,7 +48,9 @@ def _calibration(a, scorer):
 
 
 def _model_args(p):
-    p.add_argument("--adapter", default=DEFAULT_ADAPTER, help=f"LoRA adapter (default {DEFAULT_ADAPTER}, selfjev-4b)")
+    p.add_argument(
+        "--adapter", default=DEFAULT_ADAPTER, help=f"LoRA adapter dir or Hugging Face repo (default {DEFAULT_ADAPTER}, else {HUB_ADAPTER})"
+    )
     p.add_argument("--engine", default="tree", choices=["tree", "vllm"], help="tree: exact, any number of questions; vllm: merged weights")
     p.add_argument("--model-dir", help="--engine vllm: merged checkpoint from `selfjev merge`")
     p.add_argument("--max-length", type=int, default=32768, help="state + longest question, in tokens; longer input is an error")
@@ -125,7 +145,22 @@ def main(argv=None):
     aws.add_argument("--no-wait", action="store_true", help="return once the instance runs, before the server is ready")
     aws.add_argument("--fine-tuning", action="store_true", help="also serve the fine-tuning routes (jobs train on the box: 48 GB GPU)")
     a = ap.parse_args(argv)
+    try:
+        for k in ("adapter", "init"):
+            if getattr(a, k, None) and not (k == "adapter" and getattr(a, "engine", "tree") == "vllm"):  # vllm reads --model-dir
+                setattr(a, k, _adapter(getattr(a, k)))
+        _run(a)
+    except ModuleNotFoundError as e:
+        root = (e.name or "").split(".")[0]
+        if root == "vllm":
+            raise SystemExit("--engine vllm needs vLLM: pip install vllm") from e
+        extra = "train" if a.cmd in ("finetune", "rlcd") else EXTRAS.get(root)
+        if not extra:
+            raise
+        raise SystemExit(f"selfjev {a.cmd} needs the {extra} extra ({root} is missing): pip install 'selfjev[{extra}]'") from e
 
+
+def _run(a):
     if a.cmd == "serve":
         from .server.app import serve
 

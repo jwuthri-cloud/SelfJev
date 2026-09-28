@@ -2,18 +2,27 @@
 (selfjev.client) and the server (selfjev.server), so both validate exactly the same thing. Needs only pydantic.
 """
 
+import json
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 MAX_QUESTIONS = 64
 MAX_OPTIONS = 255
 
 
+def _as_text(v):
+    """Jev accepts JSON (an object or an array) wherever it takes text; the model reads it as JSON text, like `state`."""
+    return json.dumps(v, ensure_ascii=False) if isinstance(v, dict | list) else v
+
+
+Text = Annotated[str, BeforeValidator(_as_text)]
+
+
 class _Question(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    instructions: str = Field(min_length=1)
+    instructions: Text | None = Field(default=None, description="optional, as in Jev: without it the criteria carry the question")
     weight: float | None = Field(default=None, description="accepted for compatibility with Jev's SDK; not used")
 
     def __init__(self, instructions: str | None = None, criteria: Any = None, /, **data):
@@ -26,8 +35,8 @@ class _Question(BaseModel):
 
     @field_validator("instructions")
     @classmethod
-    def _not_blank(cls, v: str) -> str:
-        if not v.strip():
+    def _not_blank(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
             raise ValueError("instructions must not be blank")
         return v
 
@@ -44,21 +53,27 @@ class Noul(_Question):
     """Yes/no: the answer is the probability of yes (or of the `true` description)."""
 
     type: Literal["noul"] = "noul"
-    criteria: dict[Literal["true", "false"], str] | None = None
+    criteria: dict[Literal["true", "false"], Text | None] | None = None
 
     @field_validator("criteria")
     @classmethod
-    def _both(cls, v):
-        if v is not None and set(v) != {"true", "false"}:
-            raise ValueError('noul criteria must have both "true" and "false"')
-        return v
+    def _described(cls, v):
+        """Either side may be left out or null, as in Jev; with neither described there are no criteria."""
+        v = {k: d for k, d in (v or {}).items() if d is not None}
+        return v or None
+
+    @model_validator(mode="after")
+    def _asks_something(self):
+        if self.instructions is None and self.criteria is None:
+            raise ValueError("a noul needs instructions or criteria")
+        return self
 
 
 class Choice(_Question):
     """Exactly one option: key -> description (or None to use the key itself)."""
 
     type: Literal["choice"] = "choice"
-    criteria: dict[str, str | None]
+    criteria: dict[str, Text | None]
 
     @field_validator("criteria")
     @classmethod
@@ -70,7 +85,7 @@ class Score(_Question):
     """A position on an ordered scale of 2 to 10 described levels, lowest first."""
 
     type: Literal["score"] = "score"
-    criteria: list[str]
+    criteria: list[Text]
 
     @field_validator("criteria")
     @classmethod
@@ -86,7 +101,7 @@ class Multi(_Question):
     """Every option that applies, possibly none (a selfjev extension; Jev asks one noul per option)."""
 
     type: Literal["multi"] = "multi"
-    criteria: dict[str, str | None]
+    criteria: dict[str, Text | None]
 
     @field_validator("criteria")
     @classmethod

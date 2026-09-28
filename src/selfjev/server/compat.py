@@ -8,7 +8,7 @@ multi   {key: description} -> multilabel (an independent yes/no per option); mul
 
 import json
 
-from ..types import Choice, ChoiceAnswer, DecisionRequest, MultiAnswer, Noul, NoulAnswer, Score, ScoreAnswer, confidence
+from ..types import Choice, ChoiceAnswer, DecisionRequest, Multi, MultiAnswer, Noul, NoulAnswer, Score, ScoreAnswer, confidence
 
 
 def _label(key: str, description: str | None) -> str:
@@ -16,17 +16,31 @@ def _label(key: str, description: str | None) -> str:
     return f"{text}: {description}" if description else text
 
 
+# What a question asks when Jev's optional `instructions` is left out: its criteria carry the meaning.
+DEFAULT_INSTRUCTIONS = {
+    Noul: "Which description applies?",
+    Choice: "Which option applies?",
+    Score: "Which level applies?",
+    Multi: "Which options apply?",
+}
+
+
+def _noul_sides(criteria: dict[str, str]) -> list[dict]:
+    """Both sides of a described noul; a side Jev's caller left out is the negation of the other one."""
+    t, f = criteria.get("true"), criteria.get("false")
+    return [{"id": "true", "description": t or f"not: {f}"}, {"id": "false", "description": f or f"not: {t}"}]
+
+
 def to_native(req: DecisionRequest) -> dict:
     """-> a request in the internal schema (selfjev.core.schemas); objects and arrays in `state` become JSON text."""
     state = req.state if isinstance(req.state, str) else json.dumps(req.state, ensure_ascii=False)
     questions = []
     for qid, q in req.questions.items():
-        base = {"id": qid, "instruction": q.instructions}
+        base = {"id": qid, "instruction": q.instructions or DEFAULT_INSTRUCTIONS[type(q)]}
         if isinstance(q, Noul) and q.criteria is None:
             questions.append(base | {"type": "binary"})
         elif isinstance(q, Noul):
-            cands = [{"id": "true", "description": q.criteria["true"]}, {"id": "false", "description": q.criteria["false"]}]
-            questions.append(base | {"type": "multiclass", "candidates": cands})
+            questions.append(base | {"type": "multiclass", "candidates": _noul_sides(q.criteria)})
         elif isinstance(q, Score):
             questions.append(
                 base | {"type": "multiclass", "candidates": [{"id": str(i), "description": v} for i, v in enumerate(q.criteria)]}

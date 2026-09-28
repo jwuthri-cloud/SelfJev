@@ -4,6 +4,8 @@ The SDK is importable without torch: `from selfjev import SelfJev, Noul, Choice,
 evaluation live in selfjev.engine, selfjev.server, selfjev.training and selfjev.evaluation (extras: serve, train).
 """
 
+from importlib.metadata import version as _version
+
 from .client import (
     APIConnectionError,
     APIError,
@@ -18,7 +20,7 @@ from .client import (
 )
 from .types import Choice, DecisionRequest, DecisionResponse, FileObject, FineTuningJob, JobEvent, Multi, Noul, Score, TrainingRow
 
-__version__ = "0.2.0"
+__version__ = _version("selfjev")  # one source: pyproject.toml
 __all__ = [
     "APIConnectionError",
     "APIError",
