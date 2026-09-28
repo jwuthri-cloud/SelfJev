@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="660" viewBox="0 0 1440 660" role="img"
+aria-labelledby="title desc">
+<title id="title">SelfJev — Intelligence, decided.</title>
+<desc id="desc">A self-hosted decision model. Read one document, answer many questions. An illustrative duplicate-charge message
+leads to refund, billing and payment decisions.</desc>
+<defs>
+<pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+<path d="M32 0H0V32" fill="none" stroke="#30332e" stroke-width=".55" opacity=".45"/>
+</pattern>
+</defs>
+<rect width="1440" height="660" rx="16" fill="#111211"/>
+<rect x="780" y="0" width="660" height="526" fill="url(#grid)"/>
+<g font-family="Arial, Helvetica, sans-serif">
+<path d="M56 54h25m-25 10h17m-17 10h25" stroke="#ff7547" stroke-width="3"/>
+<text x="95" y="73" fill="#eeeee7" font-size="25" font-weight="700" letter-spacing="-1">selfjev</text>
+<text x="1345" y="68" text-anchor="end" fill="#9c9f96" font-family="monospace" font-size="12" letter-spacing="2">THE SELF-HOSTED
+DECISION MODEL</text>
+<rect x="56" y="139" width="27" height="3" fill="#ff7547"/>
+<text x="96" y="145" fill="#b4b9aa" font-family="monospace" font-size="12" letter-spacing="1.5">YOUR CONTEXT. YOUR INFRASTRUCTURE.</text>
+<text x="51" y="237" fill="#eeeee7" font-size="84" font-weight="500" letter-spacing="-5">Intelligence,</text>
+<text x="51" y="324" fill="#ff7547" font-size="84" font-weight="500" letter-spacing="-5">decided.</text>
+<text x="56" y="382" fill="#c2c6bb" font-size="23">Turn context into decisions.</text>
+<text x="56" y="418" fill="#9c9f96" font-size="21">Read once. Answer many. Run it yourself.</text>
+<text x="56" y="477" fill="#bad68e" font-family="monospace" font-size="12" letter-spacing="1">4B PARAMETERS    /    TYPED ANSWERS
+   /    YOUR GPU</text>
+<rect x="786" y="119" width="592" height="375" rx="12" fill="#181a18" stroke="#373d32"/>
+<circle cx="811" cy="145" r="3" fill="#ff7547"/>
+<text x="826" y="150" fill="#b1b6a9" font-family="monospace" font-size="11" letter-spacing="1">ONE TEXT. MANY ANSWERS.</text>
+<path d="M786 168H1378" stroke="#30332e"/>
+<text x="812" y="205" fill="#ff7547" font-family="monospace" font-size="10" letter-spacing="1">YOUR TEXT</text>
+<text x="812" y="237" fill="#eeeee7" font-size="19">“I was charged twice for my subscription.</text>
+<text x="812" y="266" fill="#eeeee7" font-size="19">Please refund the duplicate payment.”</text>
+<path d="M812 293H1352" stroke="#30332e"/>
+<g font-size="16" fill="#c2c6bb">
+<text x="812" y="330">Needs a refund?</text>
+<text x="812" y="377">Which team?</text>
+<text x="812" y="424">Which topics?</text>
+</g>
+<g stroke="#58644a" stroke-width="1.5" fill="none">
+<path d="M1048 324h33m-6-5 6 5-6 5"/>
+<path d="M1048 371h33m-6-5 6 5-6 5"/>
+<path d="M1048 418h33m-6-5 6 5-6 5"/>
+</g>
+<g fill="#bad68e" font-family="monospace" font-size="16">
+<text x="1102" y="330">true</text>
+<text x="1102" y="377">billing</text>
+<text x="1102" y="424">payments, refund</text>
+</g>
+<text x="812" y="473" fill="#858c7c" font-size="12">Illustrative decisions · not a live model response</text>
+<path d="M56 526H1384" stroke="#30332e"/>
+<path d="M388 548V619M729 548V619M1073 548V619" stroke="#30332e"/>
+<g font-family="monospace" font-size="11" fill="#9c9f96" letter-spacing="1">
+<text x="56" y="558">TEXT DECISIONS</text>
+<text x="420" y="558">AI RESPONSE REVIEW</text>
+<text x="762" y="558">SHARED CONTEXT</text>
+<text x="1106" y="558">OUTPUT</text>
+</g>
+<g font-size="41" fill="#eeeee7" letter-spacing="-1">
+<text x="56" y="604">95.7%</text>
+<text x="420" y="604">93.1%</text>
+<text x="762" y="604">One read.</text>
+<text x="1106" y="604">Decisions.</text>
+</g>
+<text x="56" y="640" fill="#858c7c" font-size="11">Accuracy on project evaluation questions · current TreeServer · methodology
+and source reports below</text>
+</g>
+</svg>
