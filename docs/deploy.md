@@ -94,6 +94,8 @@ To train elsewhere (a bigger box, a notebook), run `selfjev finetune` or `selfje
 codes, every question type on a ticket with obvious answers, Jev's paths and model names, 16 concurrent requests, a
 supervised and an RLCD fine-tuning job over HTTP and their models; it records every HTTP call and tears the box down.
 Last run: [2026-09-28](../reports/e2e/2026-09-28/report.md), 14 of 14 checks passed on an L40S in 26 minutes (≈ $0.81).
+A 75-second [video](../reports/e2e/2026-09-28/selfjev_e2e.mp4) replays that run from its record
+(`scripts/docs/e2e_video.py`: every answer and number on screen comes from the transcript).
 
 ## Operating it
 
