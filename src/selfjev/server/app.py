@@ -9,6 +9,7 @@ Concurrent requests are batched into shared forward passes (selfjev.server.batch
 SELFJEV_API_KEYS (comma-separated) or `api_keys`; none configured means open, for local self-hosting.
 """
 
+import asyncio
 import logging
 import os
 import threading
@@ -56,6 +57,7 @@ def create_app(
     max_queue=256,
     fine_tuning_home: Path | None = None,
     init_adapter: str | None = None,
+    warmup: bool = False,
 ) -> FastAPI:
     """scorer: TreeServer or VllmScorer (anything with score_requests and meta). fine_tuning_home turns on
     the fine-tuning routes; their models need a scorer that can load adapters (TreeServer(merge=False))."""
@@ -87,8 +89,25 @@ def create_app(
 
     batcher = Batcher(run, max_batch_requests, max_wait_ms, max_queue)
 
+    def warm_up():  # the first calls compile GPU kernels (39 s cold on an L40S): pay that before /health answers
+        q = [
+            {"id": "a", "type": "binary", "instruction": "Is this a test?"},
+            {
+                "id": "b",
+                "type": "multiclass",
+                "instruction": "Which?",
+                "candidates": [{"id": "x", "description": "x"}, {"id": "y", "description": "y"}],
+            },
+        ]
+        for n in (1, 16):
+            run([("default", prepare({"state": f"Warm-up text {i}.", "questions": q})) for i in range(n)])
+
     @asynccontextmanager
     async def lifespan(_):
+        if warmup:
+            t0 = time.perf_counter()
+            await asyncio.to_thread(warm_up)
+            log.info("warmed up in %.1f s", time.perf_counter() - t0)
         await batcher.start()
         yield
         await batcher.stop()
@@ -186,4 +205,4 @@ def create_app(
 def serve(scorer, host="127.0.0.1", port=8000, calibration=None, options_in_question=True, **kw):
     import uvicorn
 
-    uvicorn.run(create_app(scorer, calibration, options_in_question, **kw), host=host, port=port)
+    uvicorn.run(create_app(scorer, calibration, options_in_question, warmup=True, **kw), host=host, port=port)

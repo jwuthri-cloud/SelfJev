@@ -43,7 +43,8 @@ environment or an `.env` file.
 
 ## AWS, one command
 
-Needs AWS credentials and `pip install "selfjev[deploy]"` (or `uv sync --extra deploy`).
+Needs AWS credentials that boto3 finds (for an SSO profile: `AWS_PROFILE=<profile>`) and `pip install "selfjev[deploy]"`
+(or `uv sync --extra deploy`).
 
 ```bash
 selfjev deploy aws machines                                   # presets and prices
@@ -55,8 +56,9 @@ selfjev deploy aws down --name prod                           # terminates the b
 
 `up` starts NVIDIA's Deep Learning Base AMI and, on first boot, installs this repository at `--ref` (default `master`)
 with only the selfjev-4b weights, pre-downloads the base model and runs `selfjev serve` as a systemd service on port
-8000 behind the key. Setup installs packages and fetches about 9 GB of model; `up` waits for `/health` (up to 30
-minutes) unless `--no-wait`. The deployment
+8000 behind the key. Setup installs packages and fetches about 9 GB of model: 5.4 min from launch to a healthy server
+on a g6e.xlarge in the end-to-end test below; `up` waits for `/health` (up to 30 minutes) unless `--no-wait`. The server
+compiles its GPU kernels before `/health` answers (the first request otherwise took 39 s). The deployment
 record, key included, is kept in `~/.selfjev/deployments/<name>.json`; every resource is tagged `Project=selfjev`.
 
 | preset | GPU | $/h (us-east-2, on demand) | for |
@@ -85,6 +87,13 @@ lives in `--home` (`SELFJEV_HOME`, default `~/.selfjev/server`). In Docker, moun
 
 To train elsewhere (a bigger box, a notebook), run `selfjev finetune` or `selfjev rlcd` there
 ([fine-tune and RLCD](finetune.md)) and serve the resulting adapter with `selfjev serve --adapter <run>/adapter`.
+
+## Tested end to end
+
+`scripts/aws/e2e.py` deploys a commit this way (`--fine-tuning`), then checks through the SDK: health, auth and error
+codes, every question type on a ticket with obvious answers, Jev's paths and model names, 16 concurrent requests, a
+supervised and an RLCD fine-tuning job over HTTP and their models; it records every HTTP call and tears the box down.
+Last run: [2026-09-28](../reports/e2e/2026-09-28/report.md), 14 of 14 checks passed on an L40S in 26 minutes (≈ $0.81).
 
 ## Operating it
 

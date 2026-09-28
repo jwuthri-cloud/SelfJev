@@ -144,6 +144,18 @@ def test_too_long_input_is_422_and_a_full_queue_is_529():
     assert r.status_code == 529 and r.headers["retry-after"] == "1" and r.json()["error"]["type"] == "overloaded_error"
 
 
+def test_warm_up_runs_before_the_first_request():
+    sizes = []
+
+    class Counting(FakeScorer):
+        def score_requests(self, reqs):
+            sizes.append(len(reqs))
+            return super().score_requests(reqs)
+
+    with client(Counting(), warmup=True) as c:
+        assert sizes == [1, 16] and c.get("/health").status_code == 200
+
+
 def test_a_bug_is_a_json_500_with_the_request_id():
     class Broken(FakeScorer):
         def score_requests(self, reqs):
