@@ -218,10 +218,10 @@ class TreeServer:
     be loaded next to it (load_adapter) and chosen per batch (set_adapter): the server does this for fine-tuned models.
     """
 
-    def __init__(self, adapter, max_length=32768, max_batch_tokens=16384, merge=True):
+    def __init__(self, adapter, max_length=32768, max_batch_tokens=16384, merge=True, device="cuda", dtype="bfloat16"):
         from .qwen35 import Qwen35Scorer
 
-        self.sc = Qwen35Scorer(adapter=adapter, max_length=max_length)
+        self.sc = Qwen35Scorer(adapter=adapter, device=device, dtype=dtype, max_length=max_length)
         if merge:
             self.sc.model = self.sc.model.merge_and_unload()
         self.merged, self.adapters = merge, {"default": str(adapter)}

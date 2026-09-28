@@ -22,6 +22,13 @@ per forward pass), `--calibration` (temperatures from `selfjev calibrate`), `--e
 weights merged by `selfjev merge`: fast for one question per request, slower for many; the default tree engine reads
 the text once for all questions, see [speed](speed.md)).
 
+## Download the merged model
+
+[SelfJev-4B merged](https://huggingface.co/Jwuthrich/selfjev-4b-merged) includes the complete base model, merged
+fine-tuning weights, tokenizer and configuration (about 9.32 GB of weights). Follow its model card to download
+and serve it using `selfjev serve --engine vllm --model-dir <download-directory>` in a compatible vLLM environment.
+No separate base or adapter download is needed. The default TreeServer uses the adapter installation above.
+
 ## Docker
 
 ```bash
