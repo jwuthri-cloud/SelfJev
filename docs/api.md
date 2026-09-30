@@ -60,6 +60,12 @@ in `~/.selfjev/deployments/<name>.json`.
 
 - `state`: a string, or any JSON object or array (serialized as JSON before reading). State plus the longest question:
   at most 32,768 tokens (the model is trained on up to 16K; longer is accepted, not validated).
+- Images (an extension; Jev takes none): `state` may be an image as a base64 data URL (`"data:image/jpeg;base64,…"`), or
+  an array of parts mixing text and images, read in order. The image is encoded once by Qwen3.5's own vision tower
+  (resized to at most 1,024 × 1,024 pixels, one token per 32 × 32) and every question is answered against it, as with
+  text. Default engine only (not `--engine vllm`). The SDK turns a `Path`, image bytes or a PIL image in `state` into a
+  data URL: `client.system_one(state=[Path("cat.jpg")], questions={"breed": Choice("What breed is it?", {...})})`.
+  `selfjev-4b` was never trained on images: accuracy is in [experiments.md](experiments.md).
 - `questions`: up to 64, keyed by your ids. Each is answered in isolation against the same state; the state is read once.
 
 | type | criteria | answers |
@@ -128,6 +134,10 @@ data:
 `answers` covers every question: `true`/`false` for `noul`, a key for `choice`, a level index for `score` and a list of
 keys for `multi`. Upload it as multipart form data (`file`, `purpose=fine-tune`): `POST /v1/files` checks every line
 and names the first bad one (`param: "file.line_12"`). `GET /v1/files`, `GET` and `DELETE /v1/files/{id}` manage uploads.
+
+**Images:** `state` may be an image data URL or a list of text and image parts, exactly as in a request; the vision tower
+stays frozen and the language LoRA learns from it. Files hold the images inline (base64), limit 512 MB per file (about
+4,000 photos at 512 px). Ready-made rows from Hugging Face datasets: [image datasets](image_datasets.md).
 
 **Job:**
 
