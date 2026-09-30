@@ -265,6 +265,9 @@ class TreeServer:
     def __init__(self, adapter, max_length=32768, max_batch_tokens=16384, merge=True, device="cuda", dtype="bfloat16"):
         from .qwen35 import Qwen35Scorer
 
+        # torch picks cuDNN attention on H100, and it fails to load there (CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED, 2026-09-30):
+        # use the memory-efficient kernel that A10G / L40S already run
+        torch.backends.cuda.enable_cudnn_sdp(False)
         self.sc = Qwen35Scorer(adapter=adapter, device=device, dtype=dtype, max_length=max_length)
         if merge and adapter:  # adapter "" = the bare base model (zero-shot control)
             self.sc.model = self.sc.model.merge_and_unload()

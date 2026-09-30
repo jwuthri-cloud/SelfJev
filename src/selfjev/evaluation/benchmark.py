@@ -59,7 +59,10 @@ def _mem(device):
             "note": "MPS driver allocation after the run, including allocator cache (approximates peak)",
         }
     if device == "cuda":
-        return {"cuda_peak_allocated_mb": torch.cuda.max_memory_allocated() / 2**20}
+        return {
+            "cuda_peak_allocated_mb": torch.cuda.max_memory_allocated() / 2**20,
+            "cuda_peak_reserved_mb": torch.cuda.max_memory_reserved() / 2**20,
+        }
     return {"process_max_rss_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (2**20 if platform.system() == "Darwin" else 2**10)}
 
 
@@ -92,11 +95,16 @@ def run(scorer, grid=None, repeats=20, warmup=1, out_dir=None, min_repeats=3, ro
     for n_tokens, n_q, n_c, kind in grid:
         req = make_request(scorer.tokenizer, n_tokens, n_q, n_c, kind)
         _reset_mem(scorer.device)
-        for _ in range(warmup):
-            classify(scorer, req)
-        runs, t_row = [], time.perf_counter()  # up to `repeats` samples, stopping after row_budget_s once min_repeats are in
-        while len(runs) < repeats and (len(runs) < min_repeats or time.perf_counter() - t_row < row_budget_s):
-            runs.append(classify(scorer, req)["meta"])
+        try:
+            for _ in range(warmup):
+                classify(scorer, req)
+            runs, t_row = [], time.perf_counter()  # up to `repeats` samples, stopping after row_budget_s once min_repeats are in
+            while len(runs) < repeats and (len(runs) < min_repeats or time.perf_counter() - t_row < row_budget_s):
+                runs.append(classify(scorer, req)["meta"])
+        except torch.OutOfMemoryError:  # a result on this GPU, not a crash: record it and go on
+            rows.append({"state_tokens": n_tokens, "questions": n_q, "candidates": n_c, "type": kind, "oom": True})
+            print(json.dumps(rows[-1]), flush=True)
+            continue
         e2e, model = [r["total_ms"] for r in runs], [r["model_ms"] for r in runs]
         m = runs[0]
         rows.append(
@@ -109,8 +117,8 @@ def run(scorer, grid=None, repeats=20, warmup=1, out_dir=None, min_repeats=3, ro
                 "input_tokens": m["input_tokens"],
                 "padded_tokens": m["padded_tokens"],
                 "batches": m["batches"],
-                "state_encodes": m.get("state_sequences", m["pairs"]),
-                "state_tokens_encoded": m.get("state_tokens", m["pairs"] * n_tokens),
+                "state_encodes": m.get("state_sequences"),  # None when the engine does not report it
+                "state_tokens_encoded": m.get("state_tokens"),
                 "candidate_tokens_encoded": m.get("candidate_tokens"),
                 "memory_rows": m.get("memory_rows"),
                 "e2e_ms_p50": statistics.median(e2e),
@@ -153,7 +161,7 @@ def run(scorer, grid=None, repeats=20, warmup=1, out_dir=None, min_repeats=3, ro
 
 def markdown(r):
     m, c = r["meta"], r["cold_start"]
-    mem_key = next((k for k in r["rows"][0] if k.endswith("_mb")), None) if r["rows"] else None
+    mem_key = next((k for x in r["rows"] for k in x if k.endswith("_mb")), None)
     lines = [
         "# Serving benchmark",
         "",
@@ -170,6 +178,9 @@ def markdown(r):
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for x in r["rows"]:
+        if x.get("oom"):
+            lines.append(f"| {x['state_tokens']} | {x['questions']} | {x['candidates']} | {x['type']} | out of GPU memory |")
+            continue
         lines.append(
             f"| {x['state_tokens']} | {x['questions']} | {x['candidates']} | {x['type']} | {x['pairs']} | "
             f"{x.get('state_encodes', x['pairs'])} | {x['input_tokens']} | {x['repeats']} | "
