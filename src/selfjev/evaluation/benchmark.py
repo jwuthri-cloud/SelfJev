@@ -168,7 +168,7 @@ def markdown(r):
         f"- {m['chip']} / {m['device']} / {m['dtype']}; torch {m['torch']}, transformers {m['transformers']}; {m['created']}",
         f"- model `{m['model']}` @ `{m['revision'][:10]}` ({m.get('architecture', '?')}), "
         f"adapter/checkpoint `{m['adapter']}`, prompt `{m['prompt']}`",
-        f"- batching: max_batch_tokens={m['max_batch_tokens']} (padded), max_batch_size={m['max_batch_size']}; warmup {m['warmup']}; "
+        f"- batching: max_batch_tokens={m['max_batch_tokens']} (padded), max_batch_size={m.get('max_batch_size')}; warmup {m['warmup']}; "
         f"samples per row in the `n` column (up to 20, at least 3, ~60 s budget per row)",
         f"- cold start: load {c['load_ms']:.0f} ms + first request ({c['first_request_pairs']} pairs) {c['first_request_ms']:.0f} ms",
         "- e2e = parse + tokenize + forward + result assembly; model = forward passes incl. device sync",
