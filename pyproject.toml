@@ -31,7 +31,7 @@ Homepage = "https://github.com/Jwuthri/SelfJev"
 Documentation = "https://github.com/Jwuthri/SelfJev/blob/master/docs/api.md"
 Source = "https://github.com/Jwuthri/SelfJev"
 Issues = "https://github.com/Jwuthri/SelfJev/issues"
-Model = "https://huggingface.co/Jwuthrich/selfjev-4b"
+Model = "https://huggingface.co/Jwuthrich/selfjev-4b-vision"
 Research = "https://jwuthri.github.io/SelfJev/"
 
 [project.optional-dependencies]

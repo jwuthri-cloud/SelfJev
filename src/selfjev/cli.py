@@ -7,8 +7,8 @@ import sys
 import time
 from pathlib import Path
 
-DEFAULT_ADAPTER = "weights/selfjev_4b"
-HUB_ADAPTER = "Jwuthrich/selfjev-4b"  # what DEFAULT_ADAPTER holds, for a pip install with no checkout
+DEFAULT_ADAPTER = "weights/selfjev_4b_vision"
+HUB_ADAPTER = "Jwuthrich/selfjev-4b-vision"  # what DEFAULT_ADAPTER holds, for a pip install with no checkout
 ADAPTER_FILES = ["adapter_model.safetensors", "adapter_config.json", "model.json"]
 # The first module a command imports from each extra, and the extra that provides it.
 EXTRAS = dict.fromkeys(("fastapi", "uvicorn", "multipart", "torch", "transformers", "peft", "safetensors", "huggingface_hub"), "serve")

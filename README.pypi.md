@@ -21,7 +21,7 @@ export SELFJEV_API_KEYS="$(python -c 'import secrets; print(secrets.token_urlsaf
 selfjev serve --host 0.0.0.0 --port 8000
 ```
 
-The first start downloads the [selfjev-4b adapter](https://huggingface.co/Jwuthrich/selfjev-4b) (230 MB) and its Qwen3.5-4B base from Hugging Face. `--adapter <dir or repo>` serves your own fine-tune. Docker, AWS, Runpod and GCP recipes are in the [deployment guide](https://github.com/Jwuthri/SelfJev/blob/master/docs/deploy.md).
+The first start downloads the [selfjev-4b vision adapter](https://huggingface.co/Jwuthrich/selfjev-4b-vision) (230 MB; text and images) and its Qwen3.5-4B base from Hugging Face. `--adapter <dir or repo>` serves your own fine-tune. Docker, AWS, Runpod and GCP recipes are in the [deployment guide](https://github.com/Jwuthri/SelfJev/blob/master/docs/deploy.md).
 
 | Extra | For |
 |---|---|
@@ -97,7 +97,7 @@ These are project evaluations, not a universal ranking. See the [results and lim
 ## Links
 
 - [API reference](https://github.com/Jwuthri/SelfJev/blob/master/docs/api.md) · [Fine-tuning](https://github.com/Jwuthri/SelfJev/blob/master/docs/finetune.md) · [Deployment](https://github.com/Jwuthri/SelfJev/blob/master/docs/deploy.md)
-- [Model: selfjev-4b](https://huggingface.co/Jwuthrich/selfjev-4b) · [merged weights](https://huggingface.co/Jwuthrich/selfjev-4b-merged)
+- [Model: selfjev-4b vision](https://huggingface.co/Jwuthrich/selfjev-4b-vision) · [text-only](https://huggingface.co/Jwuthrich/selfjev-4b) · [merged weights (text-only)](https://huggingface.co/Jwuthrich/selfjev-4b-merged)
 - [Source](https://github.com/Jwuthri/SelfJev) · [Research notebook](https://jwuthri.github.io/SelfJev/)
 
 The package code is Apache-2.0. The model weights carry their own licenses; see each model card.

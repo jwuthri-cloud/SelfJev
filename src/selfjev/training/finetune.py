@@ -1,6 +1,6 @@
 """Fine-tune the best recipe (Qwen3.5-4B + shared-prefix tree + LoRA) on your own data, then RLCD on top.
 
-  selfjev finetune --data train.jsonl --out runs/mine [--val val.jsonl] [--init weights/selfjev_4b]
+  selfjev finetune --data train.jsonl --out runs/mine [--val val.jsonl] [--init weights/selfjev_4b_vision]
   selfjev rlcd     --data train.jsonl --out runs/mine_rlcd --init runs/mine/adapter [--reward log=1,brier=1,spherical=1]
 
 Data: JSONL, one question per line in the eval format: {"state": "...", "question": {"type": "binary" | "multiclass" |

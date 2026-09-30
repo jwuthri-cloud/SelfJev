@@ -6,7 +6,7 @@ document between them. Readout: one generated token restricted to {yes, no} with
 logprob(yes) - logprob(no) = z_yes - z_no, the value Qwen35Scorer.readout computes. Needs the merged checkpoint
 (`merge`, project venv) and a venv with vllm.
 
-  selfjev merge --adapter weights/selfjev_4b --out runs/selfjev_4b/merged
+  selfjev merge --adapter weights/selfjev_4b_vision --out runs/selfjev_4b/merged
   selfjev serve --engine vllm --model-dir runs/selfjev_4b/merged   # from a venv with vllm
 """
 

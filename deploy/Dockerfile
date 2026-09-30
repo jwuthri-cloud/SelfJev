@@ -1,5 +1,5 @@
 # selfjev server on one NVIDIA GPU (>= 16 GB): Jev's decisions API on selfjev-4b.
-#   git lfs pull --include "weights/selfjev_4b/*"          # the adapter must be real files, not LFS pointers
+#   git lfs pull --include "weights/selfjev_4b_vision/*"          # the adapter must be real files, not LFS pointers
 #   docker build -f deploy/Dockerfile -t selfjev .
 #   docker run --gpus all -p 8000:8000 -e SELFJEV_API_KEYS=my-key selfjev
 FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
@@ -13,9 +13,9 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project --extra serve --extra gpu
 COPY src ./src
 RUN uv sync --frozen --no-dev --extra serve --extra gpu
-COPY weights/selfjev_4b ./weights/selfjev_4b
-RUN test "$(stat -c %s weights/selfjev_4b/adapter_model.safetensors)" -gt 1000000 \
-    || (echo "weights/selfjev_4b is an LFS pointer: run git lfs pull first" && exit 1)
+COPY weights/selfjev_4b_vision ./weights/selfjev_4b_vision
+RUN test "$(stat -c %s weights/selfjev_4b_vision/adapter_model.safetensors)" -gt 1000000 \
+    || (echo "weights/selfjev_4b_vision is an LFS pointer: run git lfs pull first" && exit 1)
 
 # the pinned base model (about 9 GB), baked in so a container serves without downloading; --build-arg BAKE_MODEL=0 to skip
 ARG BAKE_MODEL=1

@@ -45,7 +45,7 @@ set -euxo pipefail
 curl -LsSf https://astral.sh/uv/install.sh | sh
 GIT_LFS_SKIP_SMUDGE=1 git clone --filter=blob:none {REPO} ~/selfjev
 cd ~/selfjev && git checkout {ref}
-git lfs install --local && git lfs pull --include 'weights/selfjev_4b/*'
+git lfs install --local && git lfs pull --include 'weights/selfjev_4b_vision/*'
 ~/.local/bin/uv sync --frozen --no-dev --extra serve --extra gpu
 ~/.local/bin/uv run --no-sync python -c "from huggingface_hub import snapshot_download; \\
 snapshot_download('{BASE_MODEL[0]}', revision='{BASE_MODEL[1]}')"

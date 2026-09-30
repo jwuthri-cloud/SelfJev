@@ -6,7 +6,7 @@
   <a href="https://www.selfjev.dev/"><strong>Website</strong></a> &nbsp; · &nbsp;
   <a href="#get-started"><strong>Get started</strong></a> &nbsp; · &nbsp;
   <a href="https://pypi.org/project/selfjev/"><strong>PyPI</strong></a> &nbsp; · &nbsp;
-  <a href="https://huggingface.co/Jwuthrich/selfjev-4b"><strong>Download the model</strong></a> &nbsp; · &nbsp;
+  <a href="https://huggingface.co/Jwuthrich/selfjev-4b-vision"><strong>Download the model</strong></a> &nbsp; · &nbsp;
   <a href="https://huggingface.co/datasets/Jwuthrich/selfjev-decision-bench"><strong>Evaluation dataset</strong></a> &nbsp; · &nbsp;
   <a href="docs/api.md"><strong>API reference</strong></a> &nbsp; · &nbsp;
   <a href="https://jwuthri.github.io/SelfJev/"><strong>Research notebook</strong></a>
@@ -53,7 +53,7 @@ export SELFJEV_API_KEYS="$(python -c 'import secrets; print(secrets.token_urlsaf
 selfjev serve --host 0.0.0.0 --port 8000
 ```
 
-The first start downloads the [selfjev-4b adapter](https://huggingface.co/Jwuthrich/selfjev-4b) (230 MB) and its pinned Qwen3.5-4B base from Hugging Face. `--adapter <dir or Hugging Face repo>` serves another adapter, such as your own fine-tune.
+The first start downloads the [selfjev-4b vision adapter](https://huggingface.co/Jwuthrich/selfjev-4b-vision) (230 MB; text and images) and its pinned Qwen3.5-4B base from Hugging Face. `--adapter <dir or Hugging Face repo>` serves another adapter, such as your own fine-tune.
 
 A **24 GB NVIDIA GPU, 16–32 GB host RAM and 50 GB free disk** is a practical starting configuration, not a measured minimum. Memory use depends on text length, question count and concurrency. [Hardware guide →](https://www.selfjev.dev/docs/hardware) · Docker, AWS, Runpod and GCP: [deployment guide →](docs/deploy.md)
 
@@ -159,8 +159,9 @@ The original evaluation engine recorded 95.8% on Text Decisions; the table uses 
 
 | Release | What's inside | Download |
 |---|---|---|
-| **SelfJev-4B** | 230 MB trained adapter; the base downloads separately. Used by the default TreeServer. | [Hugging Face ↗](https://huggingface.co/Jwuthrich/selfjev-4b) |
-| **SelfJev-4B merged** | 9.32 GB of complete weights, plus tokenizer and configuration. No separate adapter download. | [Hugging Face ↗](https://huggingface.co/Jwuthrich/selfjev-4b-merged) |
+| **SelfJev-4B Vision** | 230 MB trained adapter for text and images; the base downloads separately. The default since 2026-09-30. | [Hugging Face ↗](https://huggingface.co/Jwuthrich/selfjev-4b-vision) |
+| **SelfJev-4B** | 230 MB text-only adapter, the release the vision one continues from. | [Hugging Face ↗](https://huggingface.co/Jwuthrich/selfjev-4b) |
+| **SelfJev-4B merged** | 9.32 GB of complete weights of the text-only release, plus tokenizer and configuration. No separate adapter download. | [Hugging Face ↗](https://huggingface.co/Jwuthrich/selfjev-4b-merged) |
 | **Decision Bench** | 3,657 authored evaluation questions, expected answers, provenance and a scoring script. | [Hugging Face ↗](https://huggingface.co/datasets/Jwuthrich/selfjev-decision-bench) |
 
 Decision Bench contains **Text Decisions**, **AI Response Review**, and a smaller **Record Reasoning** challenge. The 3,471-question development benchmark above is separate. Each release card documents its provenance, intended use and current licensing information.

@@ -65,7 +65,8 @@ in `~/.selfjev/deployments/<name>.json`.
   (resized to at most 1,024 × 1,024 pixels, one token per 32 × 32) and every question is answered against it, as with
   text. Default engine only (not `--engine vllm`). The SDK turns a `Path`, image bytes or a PIL image in `state` into a
   data URL: `client.system_one(state=[Path("cat.jpg")], questions={"breed": Choice("What breed is it?", {...})})`.
-  `selfjev-4b` was never trained on images: accuracy is in [experiments.md](experiments.md).
+  The default adapter (`weights/selfjev_4b_vision`, [Jwuthrich/selfjev-4b-vision](https://huggingface.co/Jwuthrich/selfjev-4b-vision))
+  was fine-tuned on images of 6 kinds; accuracy is in [experiments.md](experiments.md) (conclusion 16).
 - `questions`: up to 64, keyed by your ids. Each is answered in isolation against the same state; the state is read once.
 
 | type | criteria | answers |
