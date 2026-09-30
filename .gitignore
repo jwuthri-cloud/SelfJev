@@ -7,3 +7,8 @@ runs/
 site/
 tmp/
 data/all.jsonl.gz
+
+# image test set, 114 MB per copy: rebuild with scripts/data/build_eval_pets.py (pinned HF revision)
+/data/eval_pets.jsonl
+/data/ova/eval_pets.jsonl
+/data/pets_train.jsonl
