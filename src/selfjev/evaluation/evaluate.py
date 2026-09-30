@@ -18,6 +18,7 @@ import torch
 import transformers
 
 from ..core.answers import classify_many, run_meta
+from ..core.schemas import is_image
 from ..data import load, sha256_file
 
 BINS = 10
@@ -219,7 +220,9 @@ def breakdowns(preds):
 def predict(scorer, examples, calibration=None):
     requests = [{"state": ex["state"], "questions": [{"id": "q", **ex["question"]}]} for ex in examples]
     results, stats = classify_many(scorer, requests, calibration)
-    state_tokens = [len(x) for x in scorer.tokenizer([ex["state"] for ex in examples], add_special_tokens=False)["input_ids"]]
+    # ponytail: image states count 0 text tokens
+    texts = [ex["state"] if isinstance(ex["state"], str) and not is_image(ex["state"]) else "" for ex in examples]
+    state_tokens = [len(x) for x in scorer.tokenizer(texts, add_special_tokens=False)["input_ids"]]
     preds = []
     for ex, [res], n in zip(examples, results, state_tokens):
         row = {k: ex.get(k) for k in ("id", "source_id", "family", "split", "target", "paraphrase_group")}

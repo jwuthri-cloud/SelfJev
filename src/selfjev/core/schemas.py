@@ -4,6 +4,11 @@ input errors. The Jev wire format (noul / choice / score / multi) maps onto it i
 from dataclasses import dataclass
 
 TYPES = ("binary", "multiclass", "multilabel")
+IMAGE = "data:image/"  # a state part starting with this is an image, as a base64 data URL
+
+
+def is_image(part) -> bool:
+    return isinstance(part, str) and part.startswith(IMAGE)
 
 
 class ValidationError(ValueError):
@@ -28,7 +33,7 @@ class Question:
 
 @dataclass(frozen=True)
 class Request:
-    state: str
+    state: str | tuple[str, ...]  # text, or parts: text or image data URLs (selfjev.engine.qwen35.Qwen35Scorer.root)
     questions: tuple[Question, ...]
 
 
@@ -91,7 +96,11 @@ def parse_question(d, where="question") -> Question:
 
 def parse_request(d) -> Request:
     _keys(d, {"state", "questions"}, "request")
-    state = _text(d, "state", "request")
+    state = d.get("state")
+    if isinstance(state, list) and state and all(isinstance(p, str) and p.strip() for p in state):
+        state = tuple(state)
+    else:
+        state = _text(d, "state", "request")
     qs = d.get("questions")
     if not isinstance(qs, list) or not qs:
         raise ValidationError("request: 'questions' must be a non-empty list")

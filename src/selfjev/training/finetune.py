@@ -5,7 +5,8 @@
 
 Data: JSONL, one question per line in the eval format: {"state": "...", "question": {"type": "binary" | "multiclass" |
 "multilabel", "instruction": "...", "candidates": [{"id": ..., "description": ...}]}, "target": true | "id" | ["id", ...]}
-("id" and "family" optional). Every option is listed in the question text (selfjev.core.options) unless
+("id" and "family" optional). "state" may be an image (a base64 data URL) or a list of text and image parts: the frozen
+vision tower encodes it, only the language LoRA trains. Every option is listed in the question text (selfjev.core.options) unless
 --no-options-in-question; selfjev serve and selfjev classify list them too (pass --no-options-in-question there for an
 adapter trained without). Needs one CUDA GPU (AGENTS.md: never the laptop). Writes <out>/adapter (best validation),
 <out>/adapter_last and <out>/train_meta.json.

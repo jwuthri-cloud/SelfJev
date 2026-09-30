@@ -145,15 +145,26 @@ def test_too_long_input_is_422_and_a_full_queue_is_529():
 
 
 def test_warm_up_runs_before_the_first_request():
+    """Text at 1 and 16 requests, then one image (loads the vision tower); an engine that refuses images still starts."""
+    from selfjev.core.schemas import ValidationError, is_image
+
     sizes = []
 
     class Counting(FakeScorer):
         def score_requests(self, reqs):
-            sizes.append(len(reqs))
+            sizes.append((len(reqs), is_image(reqs[0].state)))
+            return super().score_requests(reqs)
+
+    class NoImages(FakeScorer):
+        def score_requests(self, reqs):
+            if is_image(reqs[0].state):
+                raise ValidationError("image states need the tree engine")
             return super().score_requests(reqs)
 
     with client(Counting(), warmup=True) as c:
-        assert sizes == [1, 16] and c.get("/health").status_code == 200
+        assert sizes == [(1, False), (16, False), (1, True)] and c.get("/health").status_code == 200
+    with client(NoImages(), warmup=True) as c:
+        assert c.get("/health").status_code == 200
 
 
 def test_a_bug_is_a_json_500_with_the_request_id():

@@ -8,6 +8,7 @@ multi   {key: description} -> multilabel (an independent yes/no per option); mul
 
 import json
 
+from ..core.schemas import is_image
 from ..types import Choice, ChoiceAnswer, DecisionRequest, Multi, MultiAnswer, Noul, NoulAnswer, Score, ScoreAnswer, confidence
 
 
@@ -32,8 +33,11 @@ def _noul_sides(criteria: dict[str, str]) -> list[dict]:
 
 
 def to_native(req: DecisionRequest) -> dict:
-    """-> a request in the internal schema (selfjev.core.schemas); objects and arrays in `state` become JSON text."""
+    """-> a request in the internal schema (selfjev.core.schemas); objects and arrays in `state` become JSON text, except
+    an array with an image (a `data:image/...` URL): its parts stay parts, each object part becomes JSON text."""
     state = req.state if isinstance(req.state, str) else json.dumps(req.state, ensure_ascii=False)
+    if isinstance(req.state, list) and any(map(is_image, req.state)):
+        state = [p if isinstance(p, str) else json.dumps(p, ensure_ascii=False) for p in req.state]
     questions = []
     for qid, q in req.questions.items():
         base = {"id": qid, "instruction": q.instructions or DEFAULT_INSTRUCTIONS[type(q)]}

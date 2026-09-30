@@ -10,6 +10,7 @@ SELFJEV_API_KEYS (comma-separated) or `api_keys`; none configured means open, fo
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import threading
@@ -30,6 +31,8 @@ from .batching import Batcher, Overloaded
 from .compat import to_answers, to_native
 from .finetuning import FineTuningError, Jobs, Store, router
 from .metrics import Metrics
+
+WARM_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"  # 1x1 PNG
 
 JEV_ALIASES = frozenset({"jev-latest", "typesafe/jev-latest", "~typesafe/jev-latest"})  # Jev clients keep their model name
 OPEN_PATHS = frozenset({"/health", "/metrics"})
@@ -101,6 +104,8 @@ def create_app(
         ]
         for n in (1, 16):
             run([("default", prepare({"state": f"Warm-up text {i}.", "questions": q})) for i in range(n)])
+        with contextlib.suppress(ValidationError):  # load the vision tower now (4 s), not on the first image; vLLM refuses images
+            run([("default", prepare({"state": WARM_IMAGE, "questions": q}))])
 
     @asynccontextmanager
     async def lifespan(_):

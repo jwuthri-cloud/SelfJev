@@ -11,6 +11,8 @@ against Jev itself (TypeSafe's /v1/systemone, or OpenRouter with path="/api/alph
     )
     res.choices["team"].choice, res.nouls["refund"].noul
 
+Images (the default tree engine): `state=[Path("cat.jpg")]`, or a PIL image or image bytes, alone or next to text parts.
+
 Fine-tuning (a selfjev server started with --fine-tuning; docs/api.md "Fine-tuning"):
 
     f = client.upload_file("train.jsonl")                         # one decisions request + its answers per line
@@ -21,6 +23,8 @@ Needs only httpx and pydantic. Retries 429, 529, 5xx and connection errors with 
 """
 
 import asyncio
+import base64
+import io
 import os
 import random
 import time
@@ -108,6 +112,25 @@ def _delay(attempt: int, r: httpx.Response | None) -> float:
     return min(8.0, 0.5 * 2**attempt) * (0.5 + random.random() / 2)
 
 
+_MAGIC = {b"\x89PNG": "png", b"\xff\xd8\xff": "jpeg", b"GIF8": "gif", b"RIFF": "webp"}
+
+
+def _part(p):
+    """An image in `state` (a PIL image, image file bytes, or a Path to an image file) -> a base64 data URL."""
+    if isinstance(p, Path):
+        p = p.read_bytes()
+    if hasattr(p, "save"):  # PIL.Image
+        buf = io.BytesIO()
+        p.save(buf, format="PNG")
+        p = buf.getvalue()
+    if not isinstance(p, bytes):
+        return p
+    kind = next((k for m, k in _MAGIC.items() if p.startswith(m)), None)
+    if kind is None:
+        raise ValueError("state: bytes must be a PNG, JPEG, GIF or WebP image")
+    return f"data:image/{kind};base64," + base64.b64encode(p).decode()
+
+
 class _Base:
     def __init__(self, api_key=None, base_url=None, model=None, timeout=60.0, max_retries=2, path=DEFAULT_PATH):
         self.api_key = api_key if api_key is not None else os.environ.get("SELFJEV_API_KEY")
@@ -122,6 +145,7 @@ class _Base:
         return h
 
     def _body(self, state, questions, model, extra_body) -> dict:
+        state = [_part(p) for p in state] if isinstance(state, list) else _part(state)
         req = DecisionRequest(model=model or self.model, state=state, questions=_QUESTIONS.validate_python(questions))
         return req.model_dump(mode="json", exclude_none=True) | (extra_body or {})
 

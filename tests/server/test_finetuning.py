@@ -170,3 +170,17 @@ def test_a_job_runs_the_cli_with_its_hyperparameters(tmp_path, monkeypatch):
     assert got["args"] == ("rlcd", str(tmp_path / "t.jsonl"), str(tmp_path / "run"))
     assert (kw["val"], kw["init"], kw["epochs"], kw["lr"]) == (str(tmp_path / "v.jsonl"), "weights/selfjev_4b", 2, 1e-5)
     assert kw["reward_weights"] == {"log": 1.0, "confident_miss": 2.0} and kw["samples"] == 4
+
+
+def test_image_rows_upload_as_parts(tmp_path):
+    """An image in `state` (alone or in a list with text) reaches the training file as the same parts the engine reads."""
+    url = "data:image/png;base64,iVBORw0KGgo="
+    q = {"breed": {"type": "choice", "instructions": "Which?", "criteria": {"persian": "a Persian", "siamese": "a Siamese"}}}
+    rows = [
+        {"state": url, "questions": q, "answers": {"breed": "persian"}},
+        {"state": [url, "a cat"], "questions": q, "answers": {"breed": "siamese"}},
+    ]
+    store = finetuning.Store(tmp_path)
+    obj = store.add("".join(json.dumps(r) + "\n" for r in rows).encode(), "cats.jsonl", "fine-tune")
+    out = [json.loads(line) for line in store.training_path(obj.id).read_text().splitlines()]
+    assert obj.rows == 2 and [r["state"] for r in out] == [url, [url, "a cat"]] and [r["target"] for r in out] == ["persian", "siamese"]

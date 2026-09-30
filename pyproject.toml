@@ -44,9 +44,11 @@ serve = [  # `pip install selfjev[serve]`: the engine and the HTTP server (a CUD
     "transformers>=5.17.0",
     "huggingface_hub>=1.0",  # downloads the adapter when there is no checkout (transformers needs it anyway)
     "uvicorn[standard]>=0.32",
+    "pillow>=11",
 ]
 train = [  # `pip install selfjev[train]`: finetune and RLCD
     "peft>=0.21.0",
+    "pillow>=11",
     "safetensors>=0.8.0",
     "torch>=2.14.0",
     "transformers>=5.17.0",

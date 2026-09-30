@@ -35,3 +35,14 @@ def test_a_noul_with_nothing_to_ask_is_refused():
     with pytest.raises(ValidationError, match="instructions or criteria"):
         Noul(criteria={"true": None})
     assert Noul("Is it spam?", {"true": None, "false": None}).criteria is None  # null sides are no criteria: a plain yes/no
+
+
+def test_image_state_parts_stay_parts():
+    from selfjev.core.schemas import parse_request
+
+    url = "data:image/png;base64,iVBORw0KGgo="
+    q = {"q": {"type": "noul", "instructions": "A cat?"}}
+    native = to_native(DecisionRequest(state=[url, {"caption": "pet"}], questions=q))
+    assert native["state"] == [url, '{"caption": "pet"}']
+    assert parse_request(native).state == (url, '{"caption": "pet"}')
+    assert to_native(DecisionRequest(state=["a", "b"], questions=q))["state"] == '["a", "b"]'  # no image: JSON text, as before

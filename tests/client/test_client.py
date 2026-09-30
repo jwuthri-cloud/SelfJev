@@ -126,3 +126,14 @@ def test_async_client():
             return await c.system_one("x", QUESTIONS)
 
     assert asyncio.run(run()).choices["team"].confidence == 0.98
+
+
+def test_image_parts_become_data_urls(tmp_path):
+    from selfjev.client import _part
+
+    png = b"\x89PNG\r\n\x1a\n" + b"\0" * 8
+    (tmp_path / "cat.png").write_bytes(png)
+    assert _part(tmp_path / "cat.png") == _part(png) == "data:image/png;base64,iVBORw0KGgoAAAAAAAAAAA=="
+    assert _part("text") == "text"
+    with pytest.raises(ValueError):
+        _part(b"not an image")

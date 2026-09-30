@@ -14,6 +14,7 @@ import json
 import time
 from pathlib import Path
 
+from ..core.schemas import ValidationError, is_image
 from ..data import sha256_file
 from .qwen35 import BASE, INSTRUCTION, Qwen35Scorer
 
@@ -116,6 +117,8 @@ class VllmScorer:
 
     def score_requests(self, reqs):
         t0 = time.perf_counter()
+        if any(is_image(p) for r in reqs for p in ((r.state,) if isinstance(r.state, str) else r.state)):
+            raise ValidationError("image states need the tree engine (selfjev serve without --engine vllm)")
         entries = [[Qwen35Scorer.entry(self._enc, r.state, q) for q in r.questions] for r in reqs]
         prompts = [{"prompt_token_ids": e["root"] + b} for es in entries for e in es for b in e["branches"]]
         t1 = time.perf_counter()

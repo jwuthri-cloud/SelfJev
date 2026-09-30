@@ -9,6 +9,8 @@ per question the longest common prefix of its branches (instruction + "Proposed 
   inside a level leaves the state untouched (q = k = v = 0, beta = 0, g = 0).
 Each leaf therefore equals its standalone sequence (root + question + leaf) up to kernel rounding, and the text is
 encoded once per state instead of once per candidate (tests/engine/test_tree.py checks scores and gradients).
+Images in the root (Qwen35Scorer.root): the vision tower's embeddings replace their placeholder tokens and the root gets
+Qwen3.5's 3D M-RoPE positions (root_rope); the questions continue after the root's highest position.
 """
 
 import time
@@ -20,13 +22,43 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 from transformers.models.qwen3_5.modeling_qwen3_5 import torch_chunk_gated_delta_rule as chunk_rule  # fla if installed
 
-from ..core.schemas import InputTooLong, parse_question
+from ..core.schemas import InputTooLong, is_image, parse_question
 
 
-def build_tree(root, questions):
-    """root: token ids; questions: [(question token ids, [leaf token ids, ...]), ...] ->
-    {ids, pos, seg, parent, leaves, root}. Segments are laid out depth-first, so ancestors always come first."""
-    ids, pos, seg, parent, leaves, r = list(root), list(range(len(root))), [0] * len(root), [-1], [], len(root)
+class Root(list):
+    """A root's token ids plus its images [(data URL, grid_thw, start)]: training keeps the URL, not the pixels (a corpus
+    of pixel tensors does not fit in memory); score() makes them per batch."""
+
+    images = ()
+
+
+MERGE = 2  # Qwen3.5 vision spatial_merge_size: one LM token per 2x2 patches
+
+
+def root_rope(n, images):
+    """[3, n] M-RoPE positions of a root with images [(pixel_values, grid_thw [1, 3], start)], as
+    Qwen3_5Model.get_rope_index: text advances all three rows by 1; an image's tokens sit at (p, p + row, p + col), then
+    p advances by max(rows, cols)."""
+    pos, p, i = torch.zeros(3, n, dtype=torch.long), 0, 0
+    for _, grid, start in images:
+        t, h, w = (int(x) for x in grid.reshape(-1))
+        assert t == 1, "images only, not video"
+        h, w = h // MERGE, w // MERGE
+        pos[:, i:start], p = torch.arange(p, p + start - i), p + start - i
+        k = start + h * w
+        pos[0, start:k], pos[1, start:k], pos[2, start:k] = p, p + torch.arange(h).repeat_interleave(w), p + torch.arange(w).repeat(h)
+        p, i = p + max(h, w), k
+    pos[:, i:] = torch.arange(p, p + n - i)
+    return pos
+
+
+def build_tree(root, questions, images=()):
+    """root: token ids; questions: [(question token ids, [leaf token ids, ...]), ...]; images: Qwen35Scorer.root's ->
+    {ids, pos, seg, parent, leaves, root, rope, images}. Segments are laid out depth-first, so ancestors always come first.
+    rope: the root's 3D positions when it has images (else pos, repeated)."""
+    rope = root_rope(len(root), images) if images else None
+    r = len(root) if rope is None else int(rope.max()) + 1
+    ids, pos, seg, parent, leaves = list(root), list(range(len(root))), [0] * len(root), [-1], []
     for q_ids, leaf_list in questions:
         g = len(parent)
         parent.append(0)
@@ -40,7 +72,7 @@ def build_tree(root, questions):
             pos += range(r + len(q_ids), r + len(q_ids) + len(l_ids))
             seg += [h] * len(l_ids)
             leaves.append(len(ids) - 1)
-    return {"ids": ids, "pos": pos, "seg": seg, "parent": parent, "leaves": leaves, "root": r}
+    return {"ids": ids, "pos": pos, "seg": seg, "parent": parent, "leaves": leaves, "root": len(root), "rope": rope, "images": images}
 
 
 def tree_mask(tree, *, branches_only=False) -> torch.Tensor:
@@ -85,14 +117,17 @@ def encode_items(sc, examples, max_length):
     try:
         for ex in examples:
             q = parse_question({"id": "q", **ex["question"]})
+            state = tuple(ex["state"]) if isinstance(ex["state"], list) else ex["state"]  # parts: text and image URLs
             try:
-                e = sc.entry(ex["state"], q)
+                e = sc.entry(state, q)
             except InputTooLong:
                 dropped[ex["family"]] += 1
                 continue
-            if ex["state"] not in keys:
-                keys[ex["state"]] = len(roots)
-                roots.append(e["root"])
+            if state not in keys:
+                keys[state] = len(roots)
+                roots.append(Root(e["root"]))
+                urls = [p for p in ((state,) if isinstance(state, str) else state) if is_image(p)]
+                roots[-1].images = [(u, g, s) for u, (_, g, s) in zip(urls, e.get("images", ()), strict=True)]
             qseg, leaves = split_branches(e["branches"])
             cids = [c.id for c in q.candidates]
             target = {"binary": lambda t: t, "multiclass": cids.index, "multilabel": lambda t: [c in t for c in cids]}[q.type](ex["target"])  # noqa: B023 lambda called right away
@@ -101,7 +136,7 @@ def encode_items(sc, examples, max_length):
                     "id": ex["id"],
                     "family": ex["family"],
                     "type": q.type,
-                    "state": keys[ex["state"]],
+                    "state": keys[state],
                     "q": qseg,
                     "ids": leaves,
                     "target": target,
@@ -114,17 +149,19 @@ def encode_items(sc, examples, max_length):
 
 
 def pack(trees, pad, device):
-    """Index tensors for one micro-batch of trees, shared by every layer: ids / pos [B, T], mask [B, 1, T, T]
+    """Index tensors for one micro-batch of trees, shared by every layer: ids [B, T], pos [3, B, T], mask [B, 1, T, T]
     (tree_mask; pads see only themselves), leaves (flat indices of the readout tokens) and, per depth (roots,
     question segments, leaves), the DeltaNet levels (idx [N, L] flat token indices, valid [N, L], lens [N],
     parent [N] = index into the previous level, None for roots)."""
     B, T = len(trees), max(len(t["ids"]) for t in trees)
-    ids, pos = torch.full((B, T), pad, dtype=torch.long), torch.zeros((B, T), dtype=torch.long)
+    ids, pos = torch.full((B, T), pad, dtype=torch.long), torch.zeros((3, B, T), dtype=torch.long)
     mask = torch.eye(T, dtype=torch.bool).repeat(B, 1, 1)
     nodes, where, leaves = [[], [], []], {}, []
     for b, t in enumerate(trees):
         n, seg, par = len(t["ids"]), t["seg"], t["parent"]
-        ids[b, :n], pos[b, :n], mask[b, :n, :n] = torch.tensor(t["ids"]), torch.tensor(t["pos"]), tree_mask(t)
+        ids[b, :n], pos[:, b, :n], mask[b, :n, :n] = torch.tensor(t["ids"]), torch.tensor(t["pos"]), tree_mask(t)
+        if t.get("rope") is not None:
+            pos[:, b, : t["root"]] = t["rope"]
         start, length = {}, Counter(seg)
         for i, g in enumerate(seg):
             start.setdefault(g, i)
@@ -200,7 +237,14 @@ def score(sc, trees, grad_checkpoint=True):
     Per-layer activation checkpointing while training (HF's own drops the cache path this replaces)."""
     dec, p = sc.decoder(), pack(trees, sc.pad, sc.device)
     h = dec.embed_tokens(p.ids)
-    cos, sin = dec.rotary_emb(h, p.pos[None].expand(3, -1, -1))
+    for b, t in enumerate(trees):
+        for pixels, grid, start in t.get("images", ()):  # ponytail: one image per vision call; batch them if images dominate
+            if isinstance(pixels, str):
+                pixels = sc.image(pixels)[0]
+            with torch.no_grad():  # frozen tower
+                e = sc.visual(pixels.to(sc.device, sc.visual.dtype), grid_thw=grid.to(sc.device)).pooler_output
+            h[b, start : start + len(e)] = e.to(h.dtype)
+    cos, sin = dec.rotary_emb(h, p.pos)
     for layer in dec.layers:
         if grad_checkpoint and torch.is_grad_enabled():
             h = checkpoint(_layer, layer, h, cos, sin, p.mask, p.levels, use_reentrant=False)
@@ -222,7 +266,7 @@ class TreeServer:
         from .qwen35 import Qwen35Scorer
 
         self.sc = Qwen35Scorer(adapter=adapter, device=device, dtype=dtype, max_length=max_length)
-        if merge:
+        if merge and adapter:  # adapter "" = the bare base model (zero-shot control)
             self.sc.model = self.sc.model.merge_and_unload()
         self.merged, self.adapters = merge, {"default": str(adapter)}
         self.tokenizer, self.device, self.max_batch_tokens = self.sc.tokenizer, self.sc.device, max_batch_tokens
@@ -249,7 +293,7 @@ class TreeServer:
         trees, sizes = [], []
         for r in reqs:
             es = [self.sc.entry(r.state, q) for q in r.questions]  # InputTooLong beyond max_length
-            trees.append(build_tree(es[0]["root"], [split_branches(e["branches"]) for e in es]))
+            trees.append(build_tree(es[0]["root"], [split_branches(e["branches"]) for e in es], es[0].get("images", ())))
             sizes.append([e["n"] for e in es])
         batches, cur = [], []
         for i in sorted(range(len(trees)), key=lambda i: len(trees[i]["ids"])):

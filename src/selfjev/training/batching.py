@@ -15,7 +15,7 @@ def trees_for(items, roots):
     groups = {}
     for it in items:
         groups.setdefault(it["state"], []).append(it)
-    return [build_tree(roots[s], [(it["q"], it["ids"]) for it in g]) for s, g in groups.items()]
+    return [build_tree(roots[s], [(it["q"], it["ids"]) for it in g], getattr(roots[s], "images", ())) for s, g in groups.items()]
 
 
 def tree_len(items, roots):
