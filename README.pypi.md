@@ -1,6 +1,6 @@
 # SelfJev
 
-**SelfJev turns text and questions into decisions your code can use.** Route a request, check an AI response, or apply a policy. Get typed answers and probabilities back from selfjev-4b, an open 4B decisions model with Jev's API.
+**SelfJev turns text, images and questions into decisions your code can use.** Route a request, check an AI response, or apply a policy. Get typed answers and probabilities back from selfjev-4b, an open 4B decisions model with Jev's API.
 
 **SelfJev is self-hosted.** There is no SelfJev cloud: you run the model server on your own GPU, and this package is the client for it (plus the server itself, as an extra). Already on Jev? Keep TypeSafe's SDK and change two environment variables.
 
@@ -82,15 +82,31 @@ print(result.multis["topics"].multi)  # selected topics
 
 `AsyncSelfJev` has the same interface with `await`. `SELFJEV_BASE_URL` and `SELFJEV_API_KEY` work in place of the arguments.
 
+**Images** (new in 0.3.0; Jev takes none): put a photo, a screenshot or a scanned document in `state`, alone or next to
+text. A `Path`, image bytes or a PIL image all work; on the wire it is a base64 data URL.
+
+```python
+from pathlib import Path
+
+result = client.system_one(
+    state=[Path("cat.jpg")],
+    questions={"breed": Choice("What breed is it?", {"persian": "a Persian cat", "siamese": "a Siamese cat"})},
+)
+```
+
+The image is read once and every question is answered against it: 163 ms for one image and one question on an L40S,
+136 ms for text. Fine-tuning takes image rows too.
+
 ## Measured
 
-SelfJev-4B served by TreeServer, compared with Jev on the same questions:
+SelfJev-4B Vision (the default since 0.3.0) served by TreeServer, compared with Jev on the same questions:
 
-| Suite | Questions | SelfJev-4B | Jev |
+| Suite | Questions | SelfJev-4B Vision | Jev |
 |---|---:|---:|---:|
-| Text decisions | 1,991 | **95.7%** | 97.2% |
-| AI response review | 946 | **93.1%** | 92.5% |
-| Broader text tasks (development benchmark) | 3,471 | **83.8%** | 82.7% |
+| Text decisions | 1,991 | **96.1%** | 97.2% |
+| AI response review | 946 | **92.5%** | 92.5% |
+| Broader text tasks (development benchmark) | 3,471 | **84.1%** | 82.7% |
+| Images (10 datasets, 4 never trained on) | 2,002 | **90.4%** | no image input |
 
 These are project evaluations, not a universal ranking. See the [results and limitations](https://github.com/Jwuthri/SelfJev/blob/master/docs/experiments.md) and the [Decision Bench](https://huggingface.co/datasets/Jwuthrich/selfjev-decision-bench) evaluation set.
 

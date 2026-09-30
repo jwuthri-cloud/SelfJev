@@ -1,6 +1,6 @@
 [project]
 name = "selfjev"
-version = "0.2.0"
+version = "0.3.0"
 description = "selfjev: an open decisions model (selfjev-4b) with Jev's API. SDK, server, fine-tuning and RLCD."
 authors = [
     { name = "julien-connectly", email = "julien@connectly.ai" }
