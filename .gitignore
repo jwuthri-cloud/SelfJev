@@ -12,3 +12,7 @@ data/all.jsonl.gz
 /data/eval_pets.jsonl
 /data/ova/eval_pets.jsonl
 /data/pets_train.jsonl
+/data/images_v1/
+/data/eval_images_v1.jsonl
+/data/ova/eval_images_v1.jsonl
+/data/ova/eval_pets100.jsonl
