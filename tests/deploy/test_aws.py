@@ -16,3 +16,35 @@ def test_user_data_installs_the_pinned_ref_and_serves_behind_the_key():
 
 def test_machine_presets_fit_the_model():
     assert "g6.xlarge" in MACHINES and all(price > 0 for _, price, _ in MACHINES.values())
+
+
+def test_a_failed_launch_leaves_nothing_behind(tmp_path, monkeypatch):
+    """No capacity (run_instances raises): the security group, the key pair and its .pem are all removed."""
+    import io
+
+    import pytest
+
+    from selfjev.deploy import aws
+
+    calls = []
+
+    class EC2:
+        def __getattr__(self, op):
+            def call(**kw):
+                calls.append(op)
+                if op == "run_instances":
+                    raise RuntimeError("InsufficientInstanceCapacity")
+                return {"Vpcs": [{"VpcId": "vpc"}], "GroupId": "sg", "KeyMaterial": "pem"}
+
+            return call
+
+    class SSM:
+        def get_parameter(self, **kw):
+            return {"Parameter": {"Value": "ami"}}
+
+    monkeypatch.setattr(aws, "STATE", tmp_path)
+    monkeypatch.setattr(aws, "_clients", lambda region: (EC2(), SSM()))
+    monkeypatch.setattr(aws.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(b"1.2.3.4"))
+    with pytest.raises(RuntimeError):
+        aws.up("t", ssh=True)
+    assert {"delete_security_group", "delete_key_pair"} <= set(calls) and not list(tmp_path.iterdir())

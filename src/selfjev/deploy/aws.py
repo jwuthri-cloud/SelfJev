@@ -151,8 +151,11 @@ def up(
             TagSpecifications=_tags(name, "instance") + _tags(name, "volume"),
             **extra,
         )
-    except Exception:
+    except Exception:  # e.g. no capacity: leave nothing behind
         ec2.delete_security_group(GroupId=sg)
+        if ssh:
+            ec2.delete_key_pair(KeyName=f"selfjev-{name}")
+            (STATE / f"{name}-{region}.pem").unlink(missing_ok=True)
         raise
     record["instance_id"] = r["Instances"][0]["InstanceId"]
     record["launched"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
