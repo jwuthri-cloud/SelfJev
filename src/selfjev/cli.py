@@ -12,7 +12,7 @@ HUB_ADAPTER = "Jwuthrich/selfjev-4b-vision"  # what DEFAULT_ADAPTER holds, for a
 ADAPTER_FILES = ["adapter_model.safetensors", "adapter_config.json", "model.json"]
 # The first module a command imports from each extra, and the extra that provides it.
 EXTRAS = dict.fromkeys(("fastapi", "uvicorn", "multipart", "torch", "transformers", "peft", "safetensors", "huggingface_hub"), "serve")
-EXTRAS |= {"boto3": "deploy"}
+EXTRAS |= {"boto3": "deploy", "bitsandbytes": "quant", "accelerate": "quant"}
 
 
 def _adapter(path):
@@ -34,9 +34,19 @@ def _scorer(a):
         from .engine.vllm import VllmScorer
 
         return VllmScorer(a.model_dir, max_length=a.max_length)
+    if a.engine == "ollama":
+        from .engine.ollama import OllamaScorer
+
+        return OllamaScorer(a.ollama_model, a.ollama_host, max_length=a.max_length)
     from .engine.tree import TreeServer
 
-    return TreeServer(a.adapter, max_length=a.max_length, max_batch_tokens=a.max_batch_tokens, merge=not getattr(a, "fine_tuning", False))
+    return TreeServer(
+        a.adapter,
+        max_length=a.max_length,
+        max_batch_tokens=a.max_batch_tokens,
+        merge=not getattr(a, "fine_tuning", False),
+        quantize=a.quantize,
+    )
 
 
 def _calibration(a, scorer):
@@ -51,10 +61,14 @@ def _model_args(p):
     p.add_argument(
         "--adapter", default=DEFAULT_ADAPTER, help=f"LoRA adapter dir or Hugging Face repo (default {DEFAULT_ADAPTER}, else {HUB_ADAPTER})"
     )
-    p.add_argument("--engine", default="tree", choices=["tree", "vllm"], help="tree: exact, any number of questions; vllm: merged weights")
+    p.add_argument("--engine", default="tree", choices=["tree", "vllm", "ollama"],
+        help="tree: exact, any number of questions; vllm: merged weights; ollama: a GGUF served by Ollama (no torch)")
     p.add_argument("--model-dir", help="--engine vllm: merged checkpoint from `selfjev merge`")
+    p.add_argument("--ollama-model", default="selfjev-4b", help="--engine ollama: the model name in Ollama")
+    p.add_argument("--ollama-host", default="http://localhost:11434", help="--engine ollama: where Ollama listens")
     p.add_argument("--max-length", type=int, default=32768, help="state + longest question, in tokens; longer input is an error")
     p.add_argument("--max-batch-tokens", type=int, default=16384, help="packed tokens per forward pass")
+    p.add_argument("--quantize", choices=["8bit", "4bit"], help="bitsandbytes weights for an 8 GB GPU (extra: quant)")
     p.add_argument("--calibration", help="calibration JSON from `selfjev calibrate` (must match model/adapter/prompt)")
 
 
@@ -74,6 +88,9 @@ def _finetune_args(p, rlcd=False):
     p.add_argument("--seed", type=int, default=13)
     p.add_argument(
         "--soft-weight", type=float, default=0.5, help='rows with "soft" (a teacher\'s probabilities) train on (1 - w) x label + w x soft'
+    )
+    p.add_argument(
+        "--layout", choices=["leaves", "chain"], help="leaves: a branch per option; chain: a verdict line per option (default: --init's)"
     )
     if rlcd:
         p.add_argument(
@@ -147,7 +164,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         for k in ("adapter", "init"):
-            if getattr(a, k, None) and not (k == "adapter" and getattr(a, "engine", "tree") == "vllm"):  # vllm reads --model-dir
+            if getattr(a, k, None) and not (k == "adapter" and getattr(a, "engine", "tree") in ("vllm", "ollama")):  # own model flags
                 setattr(a, k, _adapter(getattr(a, k)))
         _run(a)
     except ModuleNotFoundError as e:
@@ -210,7 +227,7 @@ def _run(a):
             extra |= {"samples": a.samples, "sigma": a.sigma, "beta": a.beta}
         train(a.cmd, a.data, a.out, val=a.val, init=a.init, options_in_question=not a.no_options_in_question, epochs=a.epochs, lr=a.lr,
               lora_r=a.lora_r, max_length=a.max_length, batch_tokens=a.batch_tokens, grad_accum=a.grad_accum, eval_every=a.eval_every,
-              seed=a.seed, soft_weight=a.soft_weight, **extra)  # fmt: skip
+              seed=a.seed, soft_weight=a.soft_weight, layout=a.layout, **extra)  # fmt: skip
     elif a.cmd == "deploy":
         from .deploy import aws
 

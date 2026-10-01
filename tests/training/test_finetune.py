@@ -109,6 +109,11 @@ def test_finetune_then_rlcd_end_to_end_on_a_tiny_model(tmp_path, monkeypatch):
         def entry(self, state, q):
             tok = lambda t: [3 + ord(c) % 290 for c in t]
             answers = ["Yes"] if q.type == "binary" else [c.description for c in q.candidates]
+            if getattr(self, "layout", "leaves") == "chain" and q.type != "binary":  # Qwen35Scorer.entry's chain shape
+                lines = [tok(("|" if k else "") + x[:6] + ":") for k, x in enumerate(answers)]
+                e = {"root": [1, *tok(state)], "q": [*tok(q.instruction[:24]), 2], "lines": lines, "chain": True, "n": len(answers)}
+                e["length"] = len(e["root"]) + len(e["q"]) + sum(map(len, lines))
+                return e
             e = {"root": [1, *tok(state)], "branches": [[*tok(q.instruction[:24]), 2, *tok(a)[:6]] for a in answers], "n": len(answers)}
             e["length"] = len(e["root"]) + max(map(len, e["branches"]))
             return e
@@ -154,3 +159,8 @@ def test_finetune_then_rlcd_end_to_end_on_a_tiny_model(tmp_path, monkeypatch):
             mode, str(data), tmp_path / f"soft_{mode}", init=str(tmp_path / "ft/adapter"), batch_tokens=512, grad_accum=2, eval_every=5
         )
         assert m["soft_targets"] == 38 and m["best"]["n"] == 2
+    from selfjev.engine.tree import adapter_layout
+
+    ch = finetune.train("finetune", str(data), tmp_path / "chain", batch_tokens=512, grad_accum=2, eval_every=5, lora_r=4, layout="chain")
+    assert ch["layout"] == "chain" and ch["best"]["n"] == 2 and adapter_layout(tmp_path / "chain/adapter") == "chain"
+    assert adapter_layout(tmp_path / "ft/adapter") == "leaves"  # the earlier run, and continuations from it, keep their layout

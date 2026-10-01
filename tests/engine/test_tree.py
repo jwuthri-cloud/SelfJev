@@ -131,3 +131,48 @@ def test_tree_server_scores_match_standalone_sequences():
                 for b in e["branches"]
             ]
             assert torch.allclose(torch.tensor(s), torch.tensor(full), atol=1e-4), (q.id, s, full)
+
+
+def test_chain_layout_matches_full_sequences():
+    """Layout "chain": each verdict line continues the previous one; every readout equals its standalone sequence
+    (root + question + lines 1..k), for scores and gradients, next to a leaves question and in a deeper tree."""
+    torch.manual_seed(0)
+    cfg = Qwen3_5TextConfig(
+        vocab_size=64,
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=4,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=8,
+        linear_conv_kernel_dim=4,
+        linear_key_head_dim=8,
+        linear_value_head_dim=8,
+        linear_num_key_heads=2,
+        linear_num_value_heads=4,
+        initializer_range=0.2,
+    )
+    lm = Qwen3_5ForCausalLM(cfg).float()
+    lm.train()
+    sc, rnd = Stub(lm), random.Random(1)
+    tok = lambda n: [rnd.randrange(3, 64) for _ in range(n)]
+    trees = [
+        build_tree(tok(5), [(tok(3), [tok(2), tok(1), tok(3), tok(2), tok(1)], True), (tok(2), [tok(2), tok(3)], False)]),
+        build_tree(tok(3), [(tok(1), [tok(1), tok(2)], True)]),
+    ]
+    assert trees[0]["parent"][2:7] == [1, 2, 3, 4, 5]  # each line's parent is the previous line
+    w = torch.randn(9)
+    tree_scores = qwen35_tree.score(sc, trees)
+    (tree_scores * w).sum().backward()
+    tree_grads = {n: p.grad.clone() for n, p in lm.named_parameters() if p.grad is not None}
+    lm.zero_grad()
+    paths = [[t["ids"][i] for i in p] for t in trees for p in leaf_paths(t)]
+    assert len(paths[4]) == 5 + 3 + 2 + 1 + 3 + 2 + 1  # the fifth line reads every earlier line
+    full = torch.stack([sc.readout(lm.model(input_ids=torch.tensor([p]), use_cache=False).last_hidden_state[0, -1]) for p in paths])
+    (full * w).sum().backward()
+    assert torch.allclose(tree_scores, full, atol=1e-4), (tree_scores, full)
+    for n, p in lm.named_parameters():
+        if p.grad is not None:
+            # 5e-4, not 1e-4: the DeltaNet state passes through more segments in a chain, so more fp32 rounding. In float64
+            # both layouts sit at the same floor (1.4e-5 vs 1.6e-5 relative, set by the gates' fp32 casts): noise, not a bug.
+            assert (tree_grads[n] - p.grad).abs().max() <= 5e-4 * p.grad.abs().max(), n

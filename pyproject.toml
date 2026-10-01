@@ -53,6 +53,10 @@ train = [  # `pip install selfjev[train]`: finetune and RLCD
     "torch>=2.14.0",
     "transformers>=5.17.0",
 ]
+quant = [  # `pip install selfjev[serve,quant]`: --quantize 8bit|4bit, for GPUs under 16 GB
+    "bitsandbytes>=0.45; sys_platform == 'linux'",
+    "accelerate>=1.0",
+]
 deploy = [  # `selfjev deploy aws`
     "boto3>=1.35",
 ]

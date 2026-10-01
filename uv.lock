@@ -191,6 +191,20 @@ wheels = [
 ]
 
 [[package]]
+name = "bitsandbytes"
+version = "0.50.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "packaging", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "torch", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/d5/b2cb5b5a9daf7349a02b1af2c49b6a044fda2702c9cc5dc296f648358327/bitsandbytes-0.50.2-py3-none-manylinux_2_24_aarch64.whl", hash = "sha256:d5772560dd94c4d9c57f50c9b017450a1707f7687bfd4b3dc86f7342aafe721e", size = 23777467, upload-time = "2026-08-27T00:10:50.92Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/6e/e4e8b75716dbe5e50964f070266e06f4e6806ce051bfb97f52ee162b9310/bitsandbytes-0.50.2-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:55348a9a4a21bfd99cf8c7b32fe67b4030ae5c2a05738e03c1747f65fa6ec283", size = 43139553, upload-time = "2026-08-27T00:10:54.751Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.43.103"
 source = { registry = "https://pypi.org/simple" }
@@ -2145,6 +2159,10 @@ gpu = [
     { name = "einops", marker = "sys_platform == 'linux'" },
     { name = "flash-linear-attention", marker = "sys_platform == 'linux'" },
 ]
+quant = [
+    { name = "accelerate" },
+    { name = "bitsandbytes", marker = "sys_platform == 'linux'" },
+]
 serve = [
     { name = "fastapi" },
     { name = "huggingface-hub" },
@@ -2178,6 +2196,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "accelerate", marker = "extra == 'quant'", specifier = ">=1.0" },
+    { name = "bitsandbytes", marker = "sys_platform == 'linux' and extra == 'quant'", specifier = ">=0.45" },
     { name = "boto3", marker = "extra == 'deploy'", specifier = ">=1.35" },
     { name = "einops", marker = "sys_platform == 'linux' and extra == 'gpu'", specifier = ">=0.8" },
     { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.115" },
@@ -2198,7 +2218,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'train'", specifier = ">=5.17.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'serve'", specifier = ">=0.32" },
 ]
-provides-extras = ["serve", "train", "deploy", "gpu"]
+provides-extras = ["serve", "train", "quant", "deploy", "gpu"]
 
 [package.metadata.requires-dev]
 data = [{ name = "datasets", specifier = ">=5.0.1" }]

@@ -125,6 +125,7 @@ def train(
     sigma=0.3,
     beta=0.05,
     soft_weight=0.5,
+    layout=None,
 ):
 
     assert mode in ("finetune", "rlcd") and (mode == "finetune" or init), "rlcd starts from a fine-tuned adapter (--init)"
@@ -140,6 +141,7 @@ def train(
         k = min(1000, max(1, len(rows) // 20))
         vrows, rows = rows[:k], rows[k:]
     sc = Qwen35Scorer()
+    sc.layout = layout or tree.adapter_layout(init)  # "chain": one verdict line per option (selfjev.engine.tree)
     tr, roots, dropped = tree.encode_items(sc, rows, max_length)
     va, vroots, vdropped = tree.encode_items(sc, vrows, max_length)
     soft = {r["id"]: r["soft"] for r in rows if "soft" in r}
@@ -186,6 +188,7 @@ def train(
         "select_by": f"validation {select}",
         "soft_targets": sum("y" in it for it in tr),
         "soft_weight": soft_weight,
+        "layout": sc.layout,
         "log": [],
     }
     if mode == "rlcd":
@@ -199,10 +202,11 @@ def train(
         v = metrics(va, score_items(sc, va, vroots, batch_tokens))
         meta["log"].append({"step": step, "validation": v, "wall_s": time.perf_counter() - start})
         print("VALIDATION", step, json.dumps({k: round(x, 4) for k, x in v.items()}), flush=True)
-        sc.model.save_pretrained(out / "adapter_last")
+        for name in ["adapter_last"] + (["adapter"] if v[select] < best else []):
+            sc.model.save_pretrained(out / name)
+            (out / name / "selfjev.json").write_text(json.dumps({"layout": sc.layout}))  # TreeServer serves it the same way
         if v[select] < best:
             best = v[select]
-            sc.model.save_pretrained(out / "adapter")
             meta["best"] = {"step": step, **v}
         (out / "train_meta.json").write_text(json.dumps(meta, indent=1))
 
