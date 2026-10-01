@@ -16,8 +16,9 @@ Images (the default tree engine): `state=[Path("cat.jpg")]`, or a PIL image or i
 Fine-tuning (a selfjev server started with --fine-tuning; docs/api.md "Fine-tuning"):
 
     f = client.upload_file("train.jsonl")                         # one decisions request + its answers per line
+    f = client.upload_file([{"state": [Path("a.jpg")], "questions": {...}, "answers": {...}}, ...])  # or rows: images inline
     job = client.create_fine_tuning_job(f.id, method="rlcd", suffix="acme")
-    client.fine_tuning_job(job.id).fine_tuned_model               # then system_one(..., model=that name)
+    job = client.wait_fine_tuning_job(job.id)                     # polls until it ends; then system_one(..., model=job.fine_tuned_model)
 
 Needs only httpx and pydantic. Retries 429, 529, 5xx and connection errors with exponential backoff (Retry-After wins).
 """
@@ -25,6 +26,7 @@ Needs only httpx and pydantic. Retries 429, 529, 5xx and connection errors with 
 import asyncio
 import base64
 import io
+import json
 import os
 import random
 import time
@@ -43,6 +45,7 @@ from .types import (
     FineTuningJobRequest,
     JobEvent,
     Question,
+    TrainingRow,
 )
 
 DEFAULT_BASE_URL = "http://localhost:8000"
@@ -51,6 +54,7 @@ RETRY_STATUSES = frozenset({429, 500, 502, 503, 504, 529})
 _QUESTIONS = TypeAdapter(dict[str, Question])
 _JOBS, _EVENTS = TypeAdapter(list[FineTuningJob]), TypeAdapter(list[JobEvent])
 JOBS = "/v1/fine_tuning/jobs"
+DONE = frozenset({"succeeded", "failed", "cancelled"})
 
 
 class SelfJevError(Exception):
@@ -131,6 +135,11 @@ def _part(p):
     return f"data:image/{kind};base64," + base64.b64encode(p).decode()
 
 
+def _state(state):
+    """Images in `state` (alone or among the parts of a list) -> data URLs; text and JSON stay as they are."""
+    return [_part(p) for p in state] if isinstance(state, list | tuple) else _part(state)
+
+
 class _Base:
     def __init__(self, api_key=None, base_url=None, model=None, timeout=60.0, max_retries=2, path=DEFAULT_PATH):
         self.api_key = api_key if api_key is not None else os.environ.get("SELFJEV_API_KEY")
@@ -145,13 +154,18 @@ class _Base:
         return h
 
     def _body(self, state, questions, model, extra_body) -> dict:
-        state = [_part(p) for p in state] if isinstance(state, list) else _part(state)
-        req = DecisionRequest(model=model or self.model, state=state, questions=_QUESTIONS.validate_python(questions))
+        req = DecisionRequest(model=model or self.model, state=_state(state), questions=_QUESTIONS.validate_python(questions))
         return req.model_dump(mode="json", exclude_none=True) | (extra_body or {})
 
     @staticmethod
-    def _upload(path, purpose) -> dict:  # bytes, not a file handle, so a retry resends the whole file
-        return {"files": {"file": (Path(path).name, Path(path).read_bytes())}, "data": {"purpose": purpose}}
+    def _upload(file, purpose) -> dict:  # bytes, not a file handle, so a retry resends the whole file
+        if isinstance(file, str | Path):
+            name, content = Path(file).name, Path(file).read_bytes()
+        else:  # rows, each checked here (a bad one fails before the upload); images as in system_one's state
+            rows = (r.model_dump(exclude_none=True) if isinstance(r, TrainingRow) else r for r in file)
+            rows = [TrainingRow.model_validate(r | {"state": _state(r["state"])}).model_dump(mode="json", exclude_none=True) for r in rows]
+            name, content = "rows.jsonl", "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows).encode()
+        return {"files": {"file": (name, content)}, "data": {"purpose": purpose}}
 
     @staticmethod
     def _job(training_file, method, hyperparameters, validation_file, suffix, model) -> dict:
@@ -176,9 +190,10 @@ class SelfJev(_Base):
     def models(self) -> list[dict]:
         return self._request("GET", "/v1/models").json()["data"]
 
-    def upload_file(self, path: str | Path, purpose: str = "fine-tune") -> FileObject:
-        """Upload a fine-tuning file: JSONL, one {"state", "questions", "answers"} object per line."""
-        return FileObject.model_validate(self._request("POST", "/v1/files", **self._upload(path, purpose)).json())
+    def upload_file(self, file: str | Path | list, purpose: str = "fine-tune") -> FileObject:
+        """Upload fine-tuning data: a JSONL file (one {"state", "questions", "answers"} object per line) or a list of such
+        rows (dicts or TrainingRow), whose images may be Paths, image bytes or PIL images as in system_one."""
+        return FileObject.model_validate(self._request("POST", "/v1/files", **self._upload(file, purpose)).json())
 
     def create_fine_tuning_job(
         self,
@@ -204,6 +219,15 @@ class SelfJev(_Base):
 
     def cancel_fine_tuning_job(self, job_id: str) -> FineTuningJob:
         return FineTuningJob.model_validate(self._request("POST", f"{JOBS}/{job_id}/cancel").json())
+
+    def wait_fine_tuning_job(self, job_id: str, poll: float = 10.0, timeout: float | None = None) -> FineTuningJob:
+        """Poll until the job succeeds, fails or is cancelled (check job.status); TimeoutError after `timeout` seconds."""
+        t0 = time.monotonic()
+        while (job := self.fine_tuning_job(job_id)).status not in DONE:
+            if timeout is not None and time.monotonic() - t0 > timeout:
+                raise TimeoutError(f"{job_id} still {job.status} after {timeout:.0f} s")
+            time.sleep(poll)
+        return job
 
     def _post(self, path: str, body: dict) -> dict:
         return self._request("POST", path, json=body).json()
@@ -250,8 +274,8 @@ class AsyncSelfJev(_Base):
     async def models(self) -> list[dict]:
         return (await self._request("GET", "/v1/models")).json()["data"]
 
-    async def upload_file(self, path: str | Path, purpose: str = "fine-tune") -> FileObject:
-        return FileObject.model_validate((await self._request("POST", "/v1/files", **self._upload(path, purpose))).json())
+    async def upload_file(self, file: str | Path | list, purpose: str = "fine-tune") -> FileObject:
+        return FileObject.model_validate((await self._request("POST", "/v1/files", **self._upload(file, purpose))).json())
 
     async def create_fine_tuning_job(
         self,
@@ -276,6 +300,14 @@ class AsyncSelfJev(_Base):
 
     async def cancel_fine_tuning_job(self, job_id: str) -> FineTuningJob:
         return FineTuningJob.model_validate((await self._request("POST", f"{JOBS}/{job_id}/cancel")).json())
+
+    async def wait_fine_tuning_job(self, job_id: str, poll: float = 10.0, timeout: float | None = None) -> FineTuningJob:
+        t0 = time.monotonic()
+        while (job := await self.fine_tuning_job(job_id)).status not in DONE:
+            if timeout is not None and time.monotonic() - t0 > timeout:
+                raise TimeoutError(f"{job_id} still {job.status} after {timeout:.0f} s")
+            await asyncio.sleep(poll)
+        return job
 
     async def _request(self, method: str, path: str, **kw) -> httpx.Response:
         for attempt in range(self.max_retries + 1):

@@ -41,3 +41,37 @@ def test_entry_branches_equal_full_string_tokenization():
         after = sc.root("state")[1]
         want = [sc.tokens(instruction + "\nProposed answer: " + o + after) for o in options]
         assert sc.entry("state", q)["branches"] == want
+
+
+def test_image_is_read_upright_and_bad_images_are_input_errors():
+    """A phone photo stored sideways with an EXIF orientation tag reaches the vision processor upright; an image the
+    processor refuses is a 422 (ValidationError), not a 500."""
+    import base64
+    import io
+
+    import pytest
+    from PIL import Image
+
+    from selfjev.core.schemas import ValidationError
+    from selfjev.engine.qwen35 import Qwen35Scorer
+
+    sc, seen = Qwen35Scorer.__new__(Qwen35Scorer), {}
+    sc.dtype = "float32"
+
+    def processor(images, return_tensors):
+        seen["size"] = images[0].size
+        if images[0].size[0] > 100 * images[0].size[1]:
+            raise ValueError("absolute aspect ratio must be smaller than 200")
+        return {"pixel_values": torch.zeros(4, 8), "image_grid_thw": torch.tensor([[1, 2, 2]])}
+
+    sc.__dict__["image_processor"] = processor  # the cached property, without a download
+    img, buf = Image.new("RGB", (40, 20)), io.BytesIO()
+    exif = img.getexif()
+    exif[0x0112] = 6  # orientation: rotate 90 degrees to display
+    img.save(buf, "JPEG", exif=exif)
+    sc.image("data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode())
+    assert seen["size"] == (20, 40)
+    buf = io.BytesIO()
+    Image.new("RGB", (4000, 10)).save(buf, "PNG")
+    with pytest.raises(ValidationError):
+        sc.image("data:image/png;base64," + base64.b64encode(buf.getvalue()).decode())

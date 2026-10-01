@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from selfjev import InvalidRequestError, SelfJev
 from selfjev.data import validate_example
 from selfjev.server import finetuning
-from selfjev.server.app import create_app
+from selfjev.server.app import WARM_IMAGE, create_app
 from selfjev.types import FineTuningJob, Hyperparameters, Method
 from tests.fakes import FakeScorer
 
@@ -174,7 +174,7 @@ def test_a_job_runs_the_cli_with_its_hyperparameters(tmp_path, monkeypatch):
 
 def test_image_rows_upload_as_parts(tmp_path):
     """An image in `state` (alone or in a list with text) reaches the training file as the same parts the engine reads."""
-    url = "data:image/png;base64,iVBORw0KGgo="
+    url = WARM_IMAGE  # a real 1x1 PNG
     q = {"breed": {"type": "choice", "instructions": "Which?", "criteria": {"persian": "a Persian", "siamese": "a Siamese"}}}
     rows = [
         {"state": url, "questions": q, "answers": {"breed": "persian"}},
@@ -184,3 +184,8 @@ def test_image_rows_upload_as_parts(tmp_path):
     obj = store.add("".join(json.dumps(r) + "\n" for r in rows).encode(), "cats.jsonl", "fine-tune")
     out = [json.loads(line) for line in store.training_path(obj.id).read_text().splitlines()]
     assert obj.rows == 2 and [r["state"] for r in out] == [url, [url, "a cat"]] and [r["target"] for r in out] == ["persian", "siamese"]
+    # an image that does not decode is named at upload, not found an hour into the job
+    bad = [*rows, {"state": ["text", "data:image/png;base64,iVBORw0KGgo="], "questions": q, "answers": {"breed": "persian"}}]
+    with pytest.raises(finetuning.FineTuningError) as e:
+        store.add("".join(json.dumps(r) + "\n" for r in bad).encode(), "cats.jsonl", "fine-tune")
+    assert e.value.param == "file.line_3" and "unreadable image" in e.value.message

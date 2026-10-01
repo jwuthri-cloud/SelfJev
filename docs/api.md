@@ -167,6 +167,18 @@ from selfjev import SelfJev
 client = SelfJev(base_url="http://localhost:8000")
 f = client.upload_file("train.jsonl")
 job = client.create_fine_tuning_job(f.id, method="rlcd", suffix="support")
-job = client.fine_tuning_job(job.id)          # poll until job.status == "succeeded"
+job = client.wait_fine_tuning_job(job.id)     # polls until it succeeds, fails or is cancelled
 client.system_one(state, questions, model=job.fine_tuned_model)
+```
+
+`upload_file` also takes the rows themselves, checked before anything is sent; images go as in `system_one` (a `Path`,
+image bytes or a PIL image), so a folder of labelled photos is a few lines:
+
+```python
+from pathlib import Path
+from selfjev import Choice
+
+breed = {"breed": Choice("What breed is it?", {"persian": None, "siamese": None})}
+rows = [{"state": [p], "questions": breed, "answers": {"breed": p.parent.name}} for p in Path("photos").glob("*/*.jpg")]
+f = client.upload_file(rows)                  # photos/persian/1.jpg, photos/siamese/2.jpg, ...
 ```

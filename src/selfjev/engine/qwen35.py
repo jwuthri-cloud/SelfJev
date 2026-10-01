@@ -161,13 +161,13 @@ class Qwen35Scorer:
 
     def image(self, url):
         """A base64 data URL -> (pixel_values, image_grid_thw [1, 3])."""
-        from PIL import Image
+        from PIL import Image, ImageOps
 
-        try:
-            img = Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1], validate=True))).convert("RGB")
+        try:  # exif_transpose: phone photos are stored sideways with an orientation tag; the model sees them upright
+            img = ImageOps.exif_transpose(Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1], validate=True)))).convert("RGB")
+            out = self.image_processor(images=[img], return_tensors="pt")  # also refuses e.g. an aspect ratio over 200:1
         except Exception as e:
             raise ValidationError(f"state: an image part must be a base64 image data URL ({type(e).__name__}: {e})") from None
-        out = self.image_processor(images=[img], return_tensors="pt")
         return out["pixel_values"].to(getattr(torch, self.dtype)), out["image_grid_thw"]  # the tower's dtype, as HF casts
 
     @lru_cache(maxsize=4)  # noqa: B019 ponytail: one request's state, so its image is decoded once, not once per question

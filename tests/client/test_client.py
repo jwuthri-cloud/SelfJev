@@ -137,3 +137,45 @@ def test_image_parts_become_data_urls(tmp_path):
     assert _part("text") == "text"
     with pytest.raises(ValueError):
         _part(b"not an image")
+
+
+def test_rows_upload_with_images_and_are_checked_first(tmp_path):
+    """upload_file takes rows: images (Paths, bytes) become data URLs, a bad row fails before anything is sent."""
+    from selfjev import TrainingRow
+
+    png = b"\x89PNG\r\n\x1a\n" + b"\0" * 8
+    (tmp_path / "cat.png").write_bytes(png)
+    seen = {}
+
+    def handler(request):
+        seen["body"] = request.read()
+        return httpx.Response(200, json={"id": "file_1", "bytes": 1, "created_at": 0, "filename": "rows.jsonl",
+                                         "purpose": "fine-tune", "rows": 2, "questions": 2})  # fmt: skip
+
+    q = {"cat": Noul("Is there a cat?")}
+    rows = [{"state": [tmp_path / "cat.png", "a photo"], "questions": q, "answers": {"cat": True}},
+            TrainingRow(state=[png], questions=q, answers={"cat": False})]  # fmt: skip
+    assert SelfJev(http_client=mock(handler)).upload_file(rows).id == "file_1"
+    lines = [json.loads(x) for x in seen["body"].replace(b"\r\n", b"\n").split(b"\n") if x.startswith(b'{"state"')]
+    url = "data:image/png;base64,iVBORw0KGgoAAAAAAAAAAA=="
+    assert [r["state"] for r in lines] == [[url, "a photo"], [url]]
+    assert lines[0]["questions"] == {"cat": {"type": "noul", "instructions": "Is there a cat?"}}
+    with pytest.raises(ValidationError):  # the answer does not fit the question
+        SelfJev(http_client=mock(lambda r: pytest.fail("nothing is sent"))).upload_file([rows[0] | {"answers": {"cat": "yes"}}])
+
+
+def test_wait_fine_tuning_job_polls_until_it_ends(monkeypatch):
+    monkeypatch.setattr(client_module.time, "sleep", lambda s: None)
+    states = iter(["queued", "running", "running", "succeeded"])
+
+    def handler(request):
+        s = next(states)
+        done = "selfjev-4b:ft-x" if s == "succeeded" else None
+        return httpx.Response(200, json={"id": "ftjob_1", "model": "selfjev-4b", "status": s, "created_at": 0, "training_file": "file_1",
+                                         "method": {"type": "supervised"}, "fine_tuned_model": done})  # fmt: skip
+
+    job = SelfJev(http_client=mock(handler)).wait_fine_tuning_job("ftjob_1", poll=0)
+    assert job.status == "succeeded" and job.fine_tuned_model == "selfjev-4b:ft-x"
+    states = iter(["running"] * 100)
+    with pytest.raises(TimeoutError):
+        SelfJev(http_client=mock(handler)).wait_fine_tuning_job("ftjob_1", poll=0, timeout=0)

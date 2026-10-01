@@ -6,6 +6,9 @@ Training needs GPU memory next to serving: a 48 GB card, or a separate box. Stat
 (SELFJEV_HOME, default ~/.selfjev/server): files/ (uploads and their converted rows) and jobs/ (one folder per job).
 """
 
+import asyncio
+import base64
+import io
 import json
 import os
 import signal
@@ -20,6 +23,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, UploadFile
 from pydantic import ValidationError as PydanticError
 
+from ..core.schemas import is_image
 from ..types import DecisionRequest, FileObject, FineTuningJob, FineTuningJobRequest, JobEvent, TrainingRow
 from .compat import to_native
 
@@ -44,6 +48,19 @@ def _targets(row: TrainingRow, native: dict) -> list:
         else:
             out.append(list(dict.fromkeys(a)) if isinstance(a, list) else a)
     return out
+
+
+def _unreadable_image(state) -> str | None:
+    """Why an image part of `state` cannot be read (else None): caught at upload, not an hour into the job."""
+    from PIL import Image
+
+    for p in state if isinstance(state, list) else [state]:
+        if is_image(p):
+            try:
+                Image.open(io.BytesIO(base64.b64decode(p.split(",", 1)[1], validate=True))).verify()
+            except Exception as e:  # any decode failure, a decompression bomb included
+                return f"{type(e).__name__}: {e}"
+    return None
 
 
 class Store:
@@ -75,6 +92,8 @@ class Store:
                 raise FineTuningError(
                     422, "invalid_request_error", f"line {n}: {where + ': ' if where else ''}{err['msg']}", f"file.line_{n}"
                 ) from None
+            if bad := _unreadable_image(native["state"]):
+                raise FineTuningError(422, "invalid_request_error", f"line {n}: state: an unreadable image ({bad})", f"file.line_{n}")
             for q, target in zip(native["questions"], _targets(row, native), strict=True):
                 converted.append({"id": f"{fid}-{n}-{q['id']}", "source_id": f"{fid}-{n}", "family": "file", "provenance": filename,
                                   "state": native["state"], "question": q, "target": target})  # fmt: skip
@@ -253,7 +272,8 @@ def router(store: Store, jobs: Jobs) -> APIRouter:
 
     @r.post("/v1/files", response_model=FileObject)
     async def upload(file: UploadFile = File(...), purpose: str = Form("fine-tune")):
-        return store.add(await file.read(), file.filename or "upload.jsonl", purpose)
+        content = await file.read()  # checking every line (and image) takes seconds on a big file: off the event loop
+        return await asyncio.to_thread(store.add, content, file.filename or "upload.jsonl", purpose)
 
     @r.get("/v1/files")
     async def list_files():
