@@ -27,6 +27,8 @@ The first start downloads the [selfjev-4b vision adapter](https://huggingface.co
 |---|---|
 | `selfjev` | the client only: httpx + pydantic, no torch |
 | `selfjev[serve]` | the model server (add `gpu` on Linux for the fast kernels) |
+| `selfjev[serve,quant]` | `--quantize 4bit` / `--quantized-model` for an 8 GB GPU |
+| `selfjev[ollama]` | `selfjev serve --engine ollama` on the GGUF release, no torch |
 | `selfjev[train]` | `selfjev finetune` and `selfjev rlcd` |
 | `selfjev[deploy]` | `selfjev deploy aws` |
 
@@ -95,7 +97,18 @@ result = client.system_one(
 ```
 
 The image is read once and every question is answered against it: 163 ms for one image and one question on an L40S,
-136 ms for text. Fine-tuning takes image rows too.
+136 ms for text.
+
+**Fine-tuning** (a server started with `selfjev serve --fine-tuning`): upload rows, start a job, use its model. A folder
+of labelled photos is a few lines:
+
+```python
+rows = [{"state": [p], "questions": {"breed": Choice("What breed is it?", {"persian": None, "siamese": None})},
+         "answers": {"breed": p.parent.name}} for p in Path("photos").glob("*/*.jpg")]   # photos/persian/1.jpg, ...
+f = client.upload_file(rows)                     # or a JSONL file; every row is checked first
+job = client.wait_fine_tuning_job(client.create_fine_tuning_job(f.id, suffix="pets").id)
+client.system_one(state=[Path("cat.jpg")], questions=rows[0]["questions"], model=job.fine_tuned_model)
+```
 
 ## Measured
 
