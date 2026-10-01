@@ -128,7 +128,8 @@ def train(
 ):
 
     assert mode in ("finetune", "rlcd") and (mode == "finetune" or init), "rlcd starts from a fine-tuned adapter (--init)"
-    lr = lr or (2e-4 if mode == "finetune" else 5e-5)
+    # continuing an adapter at 1e-4 or more lowered it (JOURNAL 2026-10-01 02:40, e2e 13:16); 5e-5 is images v1's recipe
+    lr = lr or (2e-4 if mode == "finetune" and not init else 5e-5)
     reward_weights = reward_weights or {"log": 1.0, "brier": 1.0, "spherical": 1.0}
     torch.manual_seed(seed)
     rng, out = random.Random(seed), Path(out)

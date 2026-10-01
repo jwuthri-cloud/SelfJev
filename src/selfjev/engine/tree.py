@@ -181,6 +181,21 @@ def pack(trees, pad, device):
     )
 
 
+def bucketed_rule(q, k, v, g, beta, initial_state):
+    """chunk_rule over N sequences, N padded with empty ones to a power of 2. fla's kernels autotune per batch size (0.4-1.1 s
+    on an L40S for each new N, 2026-10-01) and a tree's N (roots, questions or leaves in a batch) changes with every traffic
+    mix: 16 concurrent requests took 19 s. Buckets bound that to ~15 sizes, which TreeServer.warm_kernels tunes at start."""
+    n = q.shape[0]
+    pad = (1 << (n - 1).bit_length()) - n
+
+    def grow(t):
+        return t if t is None or not pad else torch.cat([t, t.new_zeros((pad, *t.shape[1:]))])
+
+    o, state = chunk_rule(grow(q), grow(k), grow(v), g=grow(g), beta=grow(beta), initial_state=grow(initial_state),
+                          output_final_state=True, use_qk_l2norm_in_kernel=True)  # fmt: skip
+    return o[:n], state[:n]
+
+
 def deltanet(mod, x, levels):
     """Qwen3_5GatedDeltaNet.forward over a packed tree, level by level. x: [B, T, d] after input_layernorm."""
     B, T, _ = x.shape
@@ -205,16 +220,7 @@ def deltanet(mod, x, levels):
         if mod.num_v_heads // mod.num_k_heads > 1:
             q = q.repeat_interleave(mod.num_v_heads // mod.num_k_heads, dim=2)
             k = k.repeat_interleave(mod.num_v_heads // mod.num_k_heads, dim=2)
-        o, state = chunk_rule(
-            q,
-            k,
-            v,
-            g=g,
-            beta=beta,
-            initial_state=None if parent is None else state[parent],
-            output_final_state=True,
-            use_qk_l2norm_in_kernel=True,
-        )
+        o, state = bucketed_rule(q, k, v, g, beta, None if parent is None else state[parent])
         o = mod.out_proj(mod.norm(o.reshape(-1, mod.head_v_dim), z.reshape(-1, mod.head_v_dim)).reshape(N, L, -1))
         keep = valid.reshape(-1)
         out = out.index_copy(0, idx.reshape(-1)[keep], o.reshape(N * L, -1)[keep])
@@ -300,6 +306,25 @@ class TreeServer:
     def set_adapter(self, name: str = "default"):
         if not self.merged:
             self.sc.model.set_adapter(name)
+
+    @torch.inference_mode()
+    def warm_kernels(self):
+        """Autotune fla's DeltaNet kernels for every batch-size bucket of bucketed_rule now (≈ 15 s on an L40S), not on live
+        requests. Nothing to do on the torch fallback (no fla)."""
+        import importlib.util
+
+        if importlib.util.find_spec("fla") is None:
+            return
+        mod = next(layer.linear_attn for layer in self.sc.decoder().layers if layer.block_type == "linear_attention")
+        dt, n = getattr(torch, self.sc.dtype), 1
+        while n <= 512:  # ponytail: 512 sequences' states are 1 GB; a larger batch (rare) tunes its bucket on first use
+            z = {"device": self.device, "dtype": dt}
+            L, H = max(1, min(64, 2**14 // n)), mod.num_v_heads  # T is not in the kernels' autotune keys: keep tensors small
+            q, v = torch.zeros(n, L, H, mod.head_k_dim, **z), torch.zeros(n, L, H, mod.head_v_dim, **z)
+            g = torch.zeros(n, L, H, device=self.device)
+            for init in (None, torch.zeros(n, H, mod.head_k_dim, mod.head_v_dim, device=self.device)):  # roots, then deeper levels
+                bucketed_rule(q, q, v, g, g.to(dt), init)
+            n *= 2
 
     @torch.inference_mode()
     def score_requests(self, reqs):

@@ -152,8 +152,8 @@ recipe that produced `qwen35_4b_tree` (the previous default, archived) and, from
 texts up to 16K tokens and Jev's probabilities as soft targets, the default `weights/selfjev_4b`: LoRA r64 on the
 attention and DeltaNet projections, lr 2e-4 with 5% warm-up and linear decay, batches of whole states packed to 16,384
 tokens × 2 accumulation steps (the defaults; `qwen35_4b_tree` used 8,192 × 4), per-layer activation checkpointing.
-Start from `--init weights/selfjev_4b` to adapt the default model to a new domain, or without `--init` to train a
-fresh adapter (`--lora-r`, default 64). Every run uses Qwen3.5-4B; the Qwen3.5-2B option for quick runs is at the tag
+Start from `--init weights/selfjev_4b` to adapt the default model to a new domain (lr then defaults to 5e-5: 1e-4 and
+more lowered the adapter it continued), or without `--init` to train a fresh adapter (`--lora-r`, default 64). Every run uses Qwen3.5-4B; the Qwen3.5-2B option for quick runs is at the tag
 `archive/pre-cleanup-2026-09-27`.
 
 ## rlcd settings

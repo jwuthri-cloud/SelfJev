@@ -150,7 +150,8 @@ POST /v1/fine_tuning/jobs
 
 - `method.type`: `supervised` (cross-entropy on the answers) or `rlcd` (proper-scoring-rule rewards, optionally a cost
   per confident mistake). See [fine-tune and RLCD](finetune.md) for what each does and does not buy.
-- `hyperparameters`: `epochs` (1 to 10), `learning_rate` (default 2e-4 supervised, 5e-5 RLCD); RLCD only: `reward`
+- `hyperparameters`: `epochs` (1 to 10), `learning_rate` (default 5e-5: jobs continue the served adapter, where 1e-4
+  and more lowered accuracy); RLCD only: `reward`
   (weights of `log`, `brier`, `spherical`, `accuracy`, `confident_miss`), `samples`, `sigma`, `beta`.
 - Training starts from the served `selfjev-4b` adapter. Without a `validation_file`, 5% of the training file (at most
   1,000 questions) is held out.

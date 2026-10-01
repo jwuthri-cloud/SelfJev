@@ -90,7 +90,7 @@ def _finetune_args(p, rlcd=False):
     p.add_argument("--init", required=rlcd, help=f"adapter to start from, e.g. {DEFAULT_ADAPTER}" + (" or a finetune run" if rlcd else ""))
     p.add_argument("--no-options-in-question", action="store_true", help="do not list every option in the question text")
     p.add_argument("--epochs", type=int, default=1)
-    p.add_argument("--lr", type=float, help="default 2e-4 (finetune), 5e-5 (rlcd)")
+    p.add_argument("--lr", type=float, help="default 2e-4 (finetune from scratch), 5e-5 (from --init, rlcd)")
     p.add_argument("--lora-r", type=int, default=64, help="LoRA rank when starting without --init")
     p.add_argument("--max-length", type=int, default=16384, help="longer questions are dropped and counted, never truncated")
     p.add_argument("--batch-tokens", type=int, default=16384, help="packed tree tokens per micro-batch (at least --max-length)")

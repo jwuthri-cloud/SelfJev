@@ -93,6 +93,8 @@ def create_app(
     batcher = Batcher(run, max_batch_requests, max_wait_ms, max_queue)
 
     def warm_up():  # the first calls compile GPU kernels (39 s cold on an L40S): pay that before /health answers
+        if hasattr(scorer, "warm_kernels"):  # and tune them for every batch size traffic can bring (engine.tree.bucketed_rule)
+            scorer.warm_kernels()
         q = [
             {"id": "a", "type": "binary", "instruction": "Is this a test?"},
             {
