@@ -2159,6 +2159,11 @@ gpu = [
     { name = "einops", marker = "sys_platform == 'linux'" },
     { name = "flash-linear-attention", marker = "sys_platform == 'linux'" },
 ]
+ollama = [
+    { name = "fastapi" },
+    { name = "python-multipart" },
+    { name = "uvicorn", extra = ["standard"] },
+]
 quant = [
     { name = "accelerate" },
     { name = "bitsandbytes", marker = "sys_platform == 'linux'" },
@@ -2200,6 +2205,7 @@ requires-dist = [
     { name = "bitsandbytes", marker = "sys_platform == 'linux' and extra == 'quant'", specifier = ">=0.45" },
     { name = "boto3", marker = "extra == 'deploy'", specifier = ">=1.35" },
     { name = "einops", marker = "sys_platform == 'linux' and extra == 'gpu'", specifier = ">=0.8" },
+    { name = "fastapi", marker = "extra == 'ollama'", specifier = ">=0.115" },
     { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.115" },
     { name = "flash-linear-attention", marker = "sys_platform == 'linux' and extra == 'gpu'", specifier = ">=0.3" },
     { name = "httpx", specifier = ">=0.28" },
@@ -2209,6 +2215,7 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'serve'", specifier = ">=11" },
     { name = "pillow", marker = "extra == 'train'", specifier = ">=11" },
     { name = "pydantic", specifier = ">=2.10" },
+    { name = "python-multipart", marker = "extra == 'ollama'", specifier = ">=0.0.20" },
     { name = "python-multipart", marker = "extra == 'serve'", specifier = ">=0.0.20" },
     { name = "safetensors", marker = "extra == 'serve'", specifier = ">=0.8.0" },
     { name = "safetensors", marker = "extra == 'train'", specifier = ">=0.8.0" },
@@ -2216,9 +2223,10 @@ requires-dist = [
     { name = "torch", marker = "extra == 'train'", specifier = ">=2.14.0" },
     { name = "transformers", marker = "extra == 'serve'", specifier = ">=5.17.0" },
     { name = "transformers", marker = "extra == 'train'", specifier = ">=5.17.0" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'ollama'", specifier = ">=0.32" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'serve'", specifier = ">=0.32" },
 ]
-provides-extras = ["serve", "train", "quant", "deploy", "gpu"]
+provides-extras = ["serve", "ollama", "train", "quant", "deploy", "gpu"]
 
 [package.metadata.requires-dev]
 data = [{ name = "datasets", specifier = ">=5.0.1" }]

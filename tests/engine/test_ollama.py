@@ -8,7 +8,7 @@ from typing import ClassVar
 import pytest
 
 from selfjev.core.schemas import InputTooLong, parse_question, parse_request
-from selfjev.engine.ollama import INSTRUCTION, OllamaScorer, prompts
+from selfjev.engine.ollama import INSTRUCTION, OllamaScorer, images, prompts
 
 
 def test_prompts_equal_the_tree_engines_text():
@@ -75,3 +75,10 @@ def test_readout_and_overflow():
     with pytest.raises(InputTooLong):
         sc.score_requests([parse_request({"state": "OVERFLOW", "questions": [{"id": "b", "type": "binary", "instruction": "?"}]})])
     srv.shutdown()
+
+
+def test_images_go_next_to_the_prompt():
+    q = parse_question({"id": "q", "type": "binary", "instruction": "Is it a cat?"})
+    state = ("a photo", "data:image/png;base64,AAAA", "and another", "data:image/png;base64,BBBB")
+    assert images(state) == ["AAAA", "BBBB"]
+    assert "a photo\n[img-0]\nand another\n[img-1]\nQuestion: Is it a cat?" in prompts(state, q)[0]

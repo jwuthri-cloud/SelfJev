@@ -63,7 +63,7 @@ in `~/.selfjev/deployments/<name>.json`.
 - Images (an extension; Jev takes none): `state` may be an image as a base64 data URL (`"data:image/jpeg;base64,…"`), or
   an array of parts mixing text and images, read in order. The image is encoded once by Qwen3.5's own vision tower
   (resized to at most 1,024 × 1,024 pixels, one token per 32 × 32) and every question is answered against it, as with
-  text. Default engine only (not `--engine vllm`). The SDK turns a `Path`, image bytes or a PIL image in `state` into a
+  text. Default engine and `--engine ollama` ([ollama.md](ollama.md)), not `--engine vllm`. The SDK turns a `Path`, image bytes or a PIL image in `state` into a
   data URL: `client.system_one(state=[Path("cat.jpg")], questions={"breed": Choice("What breed is it?", {...})})`.
   The default adapter (`weights/selfjev_4b_vision`, [Jwuthrich/selfjev-4b-vision](https://huggingface.co/Jwuthrich/selfjev-4b-vision))
   was fine-tuned on images of 6 kinds; accuracy is in [experiments.md](experiments.md) (conclusion 16).

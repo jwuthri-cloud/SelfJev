@@ -21,6 +21,7 @@ Useful flags: `--max-length` (state plus longest question, default 32,768 tokens
 per forward pass), `--calibration` (temperatures from `selfjev calibrate`), `--engine vllm --model-dir <merged>` (vLLM on
 weights merged by `selfjev merge`: fast for one question per request, slower for many; the default tree engine reads
 the text once for all questions, see [speed](speed.md)).
+`--engine ollama --ollama-model <name>` serves a GGUF through Ollama on a laptop or CPU box, with no torch ([Ollama](ollama.md)).
 
 ## Download the merged model
 

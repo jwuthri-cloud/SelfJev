@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from functools import cached_property
 
-from ..core.schemas import InputTooLong, ValidationError, is_image
+from ..core.schemas import InputTooLong, is_image
 
 # ponytail: copies of qwen35.INSTRUCTION and the Qwen3.5 chat template (thinking off); tests/engine/test_ollama.py pins both to the
 # tokenizer's own rendering. Importing qwen35 would pull in torch.
@@ -27,9 +27,19 @@ HEAD = f"<|im_start|>system\n{INSTRUCTION}<|im_end|>\n<|im_start|>user\nDocument
 TAIL = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 
 
+def parts(state):
+    return (state,) if isinstance(state, str) else state
+
+
+def images(state):
+    """The state's images as plain base64, in order: Ollama takes them next to the prompt, where "[img-N]" marks each one."""
+    return [p.split(",", 1)[1] for p in parts(state) if is_image(p)]
+
+
 def prompts(state, q):
     """One prompt per candidate (binary: the answer "Yes"): the same text Qwen35Scorer.entry tokenizes."""
-    doc = state if isinstance(state, str) else "\n".join(state)
+    n = iter(range(len(parts(state))))
+    doc = "\n".join(f"[img-{next(n)}]" if is_image(p) else p for p in parts(state))
     answers = ["Yes"] if q.type == "binary" else [c.description for c in q.candidates]
     return [f"{HEAD}{doc}\nQuestion: {q.instruction}\nProposed answer: {a}{TAIL}" for a in answers]
 
@@ -72,13 +82,14 @@ class OllamaScorer:
         except urllib.error.URLError as e:
             raise RuntimeError(f"Ollama is not reachable at {self.host}: {e.reason}") from None
 
-    def z(self, prompt):
+    def z(self, prompt, images):
         r = self.post(
             "/api/generate",
             {
                 "model": self.model,
                 "prompt": prompt,
                 "raw": True,
+                "images": images,
                 "stream": False,
                 "keep_alive": "30m",
                 "logprobs": True,
@@ -96,11 +107,10 @@ class OllamaScorer:
 
     def score_requests(self, reqs):
         t0 = time.perf_counter()
-        if any(is_image(p) for r in reqs for p in ((r.state,) if isinstance(r.state, str) else r.state)):
-            raise ValidationError("image states need the tree engine (selfjev serve without --engine ollama)")
         per, tokens, pairs = [], [], 0
         for r in reqs:
-            scored = [[self.z(p) for p in prompts(r.state, q)] for q in r.questions]
+            imgs = images(r.state)
+            scored = [[self.z(p, imgs) for p in prompts(r.state, q)] for q in r.questions]
             per.append([[z for z, _ in qs] for qs in scored])
             tokens.append(max(n for qs in scored for _, n in qs))  # prompt tokens of the longest question: state included once
             pairs += sum(map(len, scored))

@@ -37,7 +37,10 @@ def _scorer(a):
     if a.engine == "ollama":
         from .engine.ollama import OllamaScorer
 
-        return OllamaScorer(a.ollama_model, a.ollama_host, max_length=a.max_length)
+        try:
+            return OllamaScorer(a.ollama_model, a.ollama_host, max_length=a.max_length)
+        except RuntimeError as e:
+            raise SystemExit(f"{e}\nget the model: ollama pull hf.co/Jwuthrich/selfjev-4b-vision-GGUF:Q8_0") from None
     from .engine.tree import TreeServer
 
     return TreeServer(

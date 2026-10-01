@@ -46,6 +46,11 @@ serve = [  # `pip install selfjev[serve]`: the engine and the HTTP server (a CUD
     "uvicorn[standard]>=0.32",
     "pillow>=11",
 ]
+ollama = [  # `pip install selfjev[ollama]`: the server on top of Ollama (selfjev serve --engine ollama): no torch
+    "fastapi>=0.115",
+    "python-multipart>=0.0.20",
+    "uvicorn[standard]>=0.32",
+]
 train = [  # `pip install selfjev[train]`: finetune and RLCD
     "peft>=0.21.0",
     "pillow>=11",
