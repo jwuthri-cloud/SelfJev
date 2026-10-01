@@ -13,6 +13,7 @@ Images in the root (Qwen35Scorer.root): the vision tower's embeddings replace th
 Qwen3.5's 3D M-RoPE positions (root_rope); the questions continue after the root's highest position.
 """
 
+import os
 import time
 from collections import Counter
 from types import SimpleNamespace
@@ -103,9 +104,7 @@ def leaf_paths(tree) -> list[list[int]]:
 
 def split_branches(branches):
     """One question's branches -> (shared segment, leaves): their longest common prefix; every leaf keeps >= 1 token."""
-    n, k = min(map(len, branches)) - 1, 0
-    while k < n and all(b[k] == branches[0][k] for b in branches):
-        k += 1
+    k = min(len(os.path.commonprefix(branches)), min(map(len, branches)) - 1)  # commonprefix: min/max compare in C, then one pair
     return branches[0][:k], [b[k:] for b in branches]
 
 

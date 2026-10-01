@@ -152,7 +152,10 @@ class Qwen35Scorer:
         """Root (self.root); one branch per candidate (binary: the answer "Yes")."""
         answers = ["Yes"] if q.type == "binary" else [c.description for c in q.candidates]
         root, after, images = self.root(state)
-        branches = [self.tokens(q.instruction + "\nProposed answer: " + a + after) for a in answers]
+        # The instruction (which lists every option) is tokenized once, not once per candidate (was quadratic in options).
+        # ":" always ends a pre-token, so head + tokens(" " + a + after) == tokens(the full string): tests/engine.
+        head = self.tokens(q.instruction + "\nProposed answer:")
+        branches = [head + self.tokens(" " + a + after) for a in answers]
         e = {"root": root, "branches": branches, "n": len(answers), "images": images}
         e["state"] = state
         e["length"] = max(len(e["root"]) + len(b) for b in e["branches"])
