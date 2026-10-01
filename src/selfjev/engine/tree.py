@@ -181,18 +181,26 @@ def pack(trees, pad, device):
     )
 
 
+def l2norm(x):
+    """fla's in-kernel q / k normalization (fp32, eps 1e-6, back to x's dtype), in torch. fla's l2norm kernel autotunes per
+    input size (constexpr NB = rows / 65,536, rows = sequences x length x heads), and a batch of requests brings new rows
+    with every traffic mix: bursts of 32 requests waited 19-29 s instead of 10 (A10G, 2026-10-01, JOURNAL 15:30)."""
+    x32 = x.float()
+    return (x32 * torch.rsqrt(x32.square().sum(-1, keepdim=True) + 1e-6)).to(x.dtype)
+
+
 def bucketed_rule(q, k, v, g, beta, initial_state):
-    """chunk_rule over N sequences, N padded with empty ones to a power of 2. fla's kernels autotune per batch size (0.4-1.1 s
-    on an L40S for each new N, 2026-10-01) and a tree's N (roots, questions or leaves in a batch) changes with every traffic
-    mix: 16 concurrent requests took 19 s. Buckets bound that to ~15 sizes, which TreeServer.warm_kernels tunes at start."""
+    """chunk_rule over N sequences, N padded with empty ones to a power of 2: fla's kernels autotune per batch size (0.4-1.1 s
+    on an L40S for each new N) and a tree's N (roots, questions or leaves in a batch) changes with every traffic mix.
+    Buckets bound that to ~15 sizes, which TreeServer.warm_kernels tunes at start; q and k are normalized here (l2norm)."""
     n = q.shape[0]
     pad = (1 << (n - 1).bit_length()) - n
 
     def grow(t):
         return t if t is None or not pad else torch.cat([t, t.new_zeros((pad, *t.shape[1:]))])
 
-    o, state = chunk_rule(grow(q), grow(k), grow(v), g=grow(g), beta=grow(beta), initial_state=grow(initial_state),
-                          output_final_state=True, use_qk_l2norm_in_kernel=True)  # fmt: skip
+    o, state = chunk_rule(grow(l2norm(q)), grow(l2norm(k)), grow(v), g=grow(g), beta=grow(beta), initial_state=grow(initial_state),
+                          output_final_state=True, use_qk_l2norm_in_kernel=False)  # fmt: skip
     return o[:n], state[:n]
 
 
@@ -309,8 +317,8 @@ class TreeServer:
 
     @torch.inference_mode()
     def warm_kernels(self):
-        """Autotune fla's DeltaNet kernels for every batch-size bucket of bucketed_rule now (≈ 15 s on an L40S), not on live
-        requests. Nothing to do on the torch fallback (no fla)."""
+        """Autotune fla's DeltaNet kernels for every batch-size bucket of bucketed_rule now, not on live requests: 42 s on an
+        A10G the first time, then from Triton's disk cache (0.5 s). Nothing to do on the torch fallback (no fla)."""
         import importlib.util
 
         if importlib.util.find_spec("fla") is None:
