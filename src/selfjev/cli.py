@@ -96,9 +96,6 @@ def _finetune_args(p, rlcd=False):
     p.add_argument(
         "--soft-weight", type=float, default=0.5, help='rows with "soft" (a teacher\'s probabilities) train on (1 - w) x label + w x soft'
     )
-    p.add_argument(
-        "--layout", choices=["leaves", "chain"], help="leaves: a branch per option; chain: a verdict line per option (default: --init's)"
-    )
     if rlcd:
         p.add_argument(
             "--reward", default="log=1,brier=1,spherical=1", help="weights of log, brier, spherical (proper), accuracy, confident_miss"
@@ -234,7 +231,7 @@ def _run(a):
             extra |= {"samples": a.samples, "sigma": a.sigma, "beta": a.beta}
         train(a.cmd, a.data, a.out, val=a.val, init=a.init, options_in_question=not a.no_options_in_question, epochs=a.epochs, lr=a.lr,
               lora_r=a.lora_r, max_length=a.max_length, batch_tokens=a.batch_tokens, grad_accum=a.grad_accum, eval_every=a.eval_every,
-              seed=a.seed, soft_weight=a.soft_weight, layout=a.layout, **extra)  # fmt: skip
+              seed=a.seed, soft_weight=a.soft_weight, **extra)  # fmt: skip
     elif a.cmd == "deploy":
         from .deploy import aws
 

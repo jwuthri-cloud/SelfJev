@@ -11,14 +11,11 @@ Each leaf therefore equals its standalone sequence (root + question + leaf) up t
 encoded once per state instead of once per candidate (tests/engine/test_tree.py checks scores and gradients).
 Images in the root (Qwen35Scorer.root): the vision tower's embeddings replace their placeholder tokens and the root gets
 Qwen3.5's 3D M-RoPE positions (root_rope); the questions continue after the root's highest position.
-Layout "chain" (Qwen35Scorer.layout): a question's leaves are its verdict lines in a row, each the parent of the next,
-so the line of option k sees the lines before it; one score per option still, in the same order.
 """
 
-import json
 import os
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from types import SimpleNamespace
 
 import torch
@@ -57,29 +54,25 @@ def root_rope(n, images):
 
 
 def build_tree(root, questions, images=()):
-    """root: token ids; questions: [(question token ids, [leaf token ids, ...][, chain]), ...]; images: Qwen35Scorer.root's
-    -> {ids, pos, seg, parent, leaves, root, rope, images}. Segments are laid out depth-first, so ancestors always come
-    first. chain: each leaf continues the previous one (parent and positions) instead of the question.
+    """root: token ids; questions: [(question token ids, [leaf token ids, ...]), ...]; images: Qwen35Scorer.root's ->
+    {ids, pos, seg, parent, leaves, root, rope, images}. Segments are laid out depth-first, so ancestors always come first.
     rope: the root's 3D positions when it has images (else pos, repeated)."""
     rope = root_rope(len(root), images) if images else None
     r = len(root) if rope is None else int(rope.max()) + 1
     ids, pos, seg, parent, leaves = list(root), list(range(len(root))), [0] * len(root), [-1], []
-    for q_ids, leaf_list, *chain in questions:
+    for q_ids, leaf_list in questions:
         g = len(parent)
         parent.append(0)
         ids += q_ids
         pos += range(r, r + len(q_ids))
         seg += [g] * len(q_ids)
-        at, up = r + len(q_ids), g
         for l_ids in leaf_list:
             h = len(parent)
-            parent.append(up)
+            parent.append(g)
             ids += l_ids
-            pos += range(at, at + len(l_ids))
+            pos += range(r + len(q_ids), r + len(q_ids) + len(l_ids))
             seg += [h] * len(l_ids)
             leaves.append(len(ids) - 1)
-            if chain and chain[0]:
-                at, up = at + len(l_ids), h
     return {"ids": ids, "pos": pos, "seg": seg, "parent": parent, "leaves": leaves, "root": len(root), "rope": rope, "images": images}
 
 
@@ -109,11 +102,6 @@ def leaf_paths(tree) -> list[list[int]]:
     return out
 
 
-def segments(e):
-    """An entry -> (question segment, leaves, chain) for build_tree."""
-    return (e["q"], e["lines"], True) if e.get("chain") else (*split_branches(e["branches"]), False)
-
-
 def split_branches(branches):
     """One question's branches -> (shared segment, leaves): their longest common prefix; every leaf keeps >= 1 token."""
     k = min(len(os.path.commonprefix(branches)), min(map(len, branches)) - 1)  # commonprefix: min/max compare in C, then one pair
@@ -139,7 +127,7 @@ def encode_items(sc, examples, max_length):
                 roots.append(Root(e["root"]))
                 urls = [p for p in ((state,) if isinstance(state, str) else state) if is_image(p)]
                 roots[-1].images = [(u, g, s) for u, (_, g, s) in zip(urls, e.get("images", ()), strict=True)]
-            qseg, leaves, chain = segments(e)
+            qseg, leaves = split_branches(e["branches"])
             cids = [c.id for c in q.candidates]
             target = {"binary": lambda t: t, "multiclass": cids.index, "multilabel": lambda t: [c in t for c in cids]}[q.type](ex["target"])  # noqa: B023 lambda called right away
             items.append(
@@ -152,7 +140,6 @@ def encode_items(sc, examples, max_length):
                     "ids": leaves,
                     "target": target,
                     "candidate_ids": cids,
-                    "chain": chain,
                 }
             )
     finally:
@@ -168,7 +155,7 @@ def pack(trees, pad, device):
     B, T = len(trees), max(len(t["ids"]) for t in trees)
     ids, pos = torch.full((B, T), pad, dtype=torch.long), torch.zeros((3, B, T), dtype=torch.long)
     mask = torch.eye(T, dtype=torch.bool).repeat(B, 1, 1)
-    nodes, where, leaves = defaultdict(list), {}, []  # depth -> nodes; chained leaves make trees deeper than 3
+    nodes, where, leaves = [[], [], []], {}, []
     for b, t in enumerate(trees):
         n, seg, par = len(t["ids"]), t["seg"], t["parent"]
         ids[b, :n], pos[:, b, :n], mask[b, :n, :n] = torch.tensor(t["ids"]), torch.tensor(t["pos"]), tree_mask(t)
@@ -183,7 +170,7 @@ def pack(trees, pad, device):
             nodes[d].append((b * T + start.get(g, 0), length[g], p))
         leaves += [b * T + i for i in t["leaves"]]
     levels = []
-    for d, ns in enumerate(nodes[k] for k in sorted(nodes)):
+    for d, ns in enumerate(n for n in nodes if n):
         s, ln = torch.tensor([x[0] for x in ns]), torch.tensor([x[1] for x in ns])
         ar = torch.arange(max(1, int(ln.max())))
         valid = ar[None] < ln[:, None]
@@ -266,12 +253,6 @@ def score(sc, trees, grad_checkpoint=True):
     return sc.readout(h.reshape(-1, h.shape[-1])[p.leaves])
 
 
-def adapter_layout(adapter):
-    """The layout an adapter was trained with: its selfjev.json (written by selfjev finetune), else "leaves"."""
-    f = os.path.join(str(adapter or ""), "selfjev.json")
-    return json.load(open(f)).get("layout", "leaves") if adapter and os.path.exists(f) else "leaves"
-
-
 class TreeServer:
     """Serving with the training tree, forward only: per request one tree (text once, each question once, then each
     candidate's own tokens). Requests are packed by length under max_batch_tokens.
@@ -287,7 +268,6 @@ class TreeServer:
         # use the memory-efficient kernel that A10G / L40S already run
         torch.backends.cuda.enable_cudnn_sdp(False)
         self.sc = Qwen35Scorer(adapter=adapter, device=device, dtype=dtype, max_length=max_length, quantize=quantize)
-        self.sc.layout = adapter_layout(adapter)
         if merge and adapter and not quantize:  # adapter "" = the bare base model (zero-shot control); quantize merges itself
             self.sc.model = self.sc.model.merge_and_unload()
         self.merged, self.adapters = merge, {"default": str(adapter)}
@@ -315,7 +295,7 @@ class TreeServer:
         trees, sizes = [], []
         for r in reqs:
             es = [self.sc.entry(r.state, q) for q in r.questions]  # InputTooLong beyond max_length
-            trees.append(build_tree(es[0]["root"], [segments(e) for e in es], es[0].get("images", ())))
+            trees.append(build_tree(es[0]["root"], [split_branches(e["branches"]) for e in es], es[0].get("images", ())))
             sizes.append([e["n"] for e in es])
         batches, cur = [], []
         for i in sorted(range(len(trees)), key=lambda i: len(trees[i]["ids"])):
