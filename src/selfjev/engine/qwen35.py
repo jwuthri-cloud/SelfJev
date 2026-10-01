@@ -10,6 +10,7 @@ them 3D M-RoPE positions (selfjev.engine.tree). A state is a string or a tuple o
 """
 
 import base64
+import gc
 import hashlib
 import io
 from functools import cached_property, lru_cache
@@ -44,21 +45,24 @@ def place_model(model, device, dtype):
     return model.to(device).eval()
 
 
-def quantized(model, adapter, bits, device):
-    """The merged model with bitsandbytes 8-bit (LLM.int8) or 4-bit (NF4) weights on `device`. bitsandbytes quantizes while
-    loading a checkpoint, so the merged bf16 model is written once to ~/.selfjev/quantized (~8 GB) and reloaded quantized."""
+def merged_checkpoint(model, adapter):
+    """The adapter merged (exactly, in bf16) into `model` and written once to ~/.selfjev/quantized (~8 GB); returns the path."""
+    path = Path.home() / ".selfjev" / "quantized" / f"merged-{hashlib.sha256(str(adapter).encode()).hexdigest()[:12]}"
+    if not (path / "config.json").exists():
+        if adapter:
+            from peft import PeftModel
+
+            model = PeftModel.from_pretrained(model, adapter).merge_and_unload()
+        model.save_pretrained(path)
+    return path
+
+
+def load_quantized(path, bits, device):
+    """bitsandbytes 8-bit (LLM.int8) or 4-bit (NF4) weights on `device`, quantized while loading the merged checkpoint."""
     from transformers import BitsAndBytesConfig, Qwen3_5ForCausalLM
 
     if bits not in ("8bit", "4bit"):
         raise ValueError(f"quantize must be 8bit or 4bit, not {bits!r}")
-    if adapter:
-        from peft import PeftModel
-
-        model = PeftModel.from_pretrained(model, adapter).merge_and_unload()
-    path = Path.home() / ".selfjev" / "quantized" / f"merged-{hashlib.sha256(str(adapter).encode()).hexdigest()[:12]}"
-    if not (path / "config.json").exists():
-        model.save_pretrained(path)
-    del model
     cfg = (
         BitsAndBytesConfig(load_in_8bit=True)
         if bits == "8bit"
@@ -83,7 +87,10 @@ class Qwen35Scorer:
         if loading.get("missing_keys") or loading.get("mismatched_keys") or loading.get("error_msgs"):
             raise RuntimeError(f"Invalid checkpoint load: {loading}")
         if quantize:  # bf16 on the CPU, adapter merged exactly, then 4/8-bit weights: the full model never has to fit the GPU
-            self.model = quantized(self.model, adapter, quantize, device)
+            path = merged_checkpoint(self.model, adapter)
+            self.model = None  # free the 8 GB CPU copy before the quantized load (a 16 GB host thrashes otherwise)
+            gc.collect()
+            self.model = load_quantized(path, quantize, device)
         else:
             self.model = place_model(self.model, device, dtype)
             if adapter:

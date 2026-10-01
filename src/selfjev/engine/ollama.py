@@ -9,9 +9,11 @@ No torch, no transformers: a Mac, a CPU box or anything that runs Ollama.
 
 import hashlib
 import json
+import re
 import time
 import urllib.error
 import urllib.request
+from functools import cached_property
 
 from ..core.schemas import InputTooLong, ValidationError, is_image
 
@@ -36,8 +38,13 @@ class OllamaScorer:
     # ponytail: requests run one after the other (the first warms the state's cache, the rest hit it); a thread pool is the upgrade
     def __init__(self, model="selfjev-4b", host="http://localhost:11434", max_length=32768):
         self.model, self.host, self.max_length = model, host.rstrip("/"), max_length
+        info = self.post("/api/show", {"model": model})  # fails early and clearly when Ollama or the model is missing
+        blob = re.search(r"sha256-([0-9a-f]{64})", info.get("modelfile", ""))
         self.meta = {
             "model": model,
+            "revision": blob[1] if blob else "unknown",  # the GGUF's sha256
+            "adapter": "merged into the GGUF",
+            "adapter_sha256": blob[1] if blob else None,
             "engine": "ollama",
             "host": host,
             "architecture": "one request per candidate on Ollama (prefix cache shares the state), readout logprob(yes) - logprob(no)",
@@ -45,8 +52,15 @@ class OllamaScorer:
             "prompt_sha": hashlib.sha256(INSTRUCTION.encode()).hexdigest()[:12],
             "truncation": "none (overlength input raises InputTooLong)",
             "max_length": max_length,
+            "device": "ollama",
+            "dtype": info.get("details", {}).get("quantization_level", "?"),
         }
-        self.post("/api/show", {"model": model})  # fails early and clearly when Ollama or the model is missing
+
+    @cached_property
+    def tokenizer(self):  # only `selfjev eval` / `bench` read it (length buckets); serving needs no transformers
+        from transformers import AutoTokenizer
+
+        return AutoTokenizer.from_pretrained("Qwen/Qwen3.5-4B")
 
     def post(self, path, body):
         req = urllib.request.Request(self.host + path, json.dumps(body).encode(), {"Content-Type": "application/json"})

@@ -61,8 +61,12 @@ def _model_args(p):
     p.add_argument(
         "--adapter", default=DEFAULT_ADAPTER, help=f"LoRA adapter dir or Hugging Face repo (default {DEFAULT_ADAPTER}, else {HUB_ADAPTER})"
     )
-    p.add_argument("--engine", default="tree", choices=["tree", "vllm", "ollama"],
-        help="tree: exact, any number of questions; vllm: merged weights; ollama: a GGUF served by Ollama (no torch)")
+    p.add_argument(
+        "--engine",
+        default="tree",
+        choices=["tree", "vllm", "ollama"],
+        help="tree: exact, any number of questions; vllm: merged weights; ollama: a GGUF served by Ollama (no torch)",
+    )
     p.add_argument("--model-dir", help="--engine vllm: merged checkpoint from `selfjev merge`")
     p.add_argument("--ollama-model", default="selfjev-4b", help="--engine ollama: the model name in Ollama")
     p.add_argument("--ollama-host", default="http://localhost:11434", help="--engine ollama: where Ollama listens")
