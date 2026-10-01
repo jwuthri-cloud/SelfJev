@@ -60,10 +60,12 @@ def load_quantized(path, bits, device):
     """bitsandbytes 8-bit (LLM.int8) or 4-bit (NF4) weights on `device`, quantized while loading the merged checkpoint."""
     from transformers import BitsAndBytesConfig, Qwen3_5ForCausalLM
 
-    if bits not in ("8bit", "4bit"):
+    if bits not in (None, "8bit", "4bit"):
         raise ValueError(f"quantize must be 8bit or 4bit, not {bits!r}")
     cfg = (
-        BitsAndBytesConfig(load_in_8bit=True)
+        None  # a saved quantized checkpoint carries its own quantization_config
+        if bits is None
+        else BitsAndBytesConfig(load_in_8bit=True)
         if bits == "8bit"
         else BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16)
     )
@@ -71,7 +73,9 @@ def load_quantized(path, bits, device):
 
 
 class Qwen35Scorer:
-    def __init__(self, adapter=None, device="cuda", dtype="bfloat16", max_length=32768, max_pixels=1024 * 1024, quantize=None):
+    def __init__(
+        self, adapter=None, device="cuda", dtype="bfloat16", max_length=32768, max_pixels=1024 * 1024, quantize=None, quantized_model=None
+    ):
         self.device, self.dtype, self.max_length, self.max_pixels, self.quantize = device, dtype, max_length, max_pixels, quantize
         model_id, revision = BASE
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
@@ -79,22 +83,28 @@ class Qwen35Scorer:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
         from transformers import Qwen3_5ForCausalLM
 
-        self.model, loading = Qwen3_5ForCausalLM.from_pretrained(
-            model_id, revision=revision, dtype=getattr(torch, dtype), output_loading_info=True
-        )
-        if loading.get("missing_keys") or loading.get("mismatched_keys") or loading.get("error_msgs"):
-            raise RuntimeError(f"Invalid checkpoint load: {loading}")
-        if quantize:  # bf16 on the CPU, adapter merged exactly, then 4/8-bit weights: the full model never has to fit the GPU
-            path = merged_checkpoint(self.model, adapter)
-            self.model = None  # free the 8 GB CPU copy before the quantized load (a 16 GB host thrashes otherwise)
-            gc.collect()
-            self.model = load_quantized(path, quantize, device)
+        if quantized_model:  # a checkpoint written by `selfjev quantize`: the adapter is merged in, no bf16 base is downloaded
+            self.model = load_quantized(quantized_model, None, device)
+            cfg = self.model.config.quantization_config
+            quantize = "4bit" if getattr(cfg, "load_in_4bit", False) else "8bit"
+            adapter = None
         else:
-            self.model = place_model(self.model, device, dtype)
-            if adapter:
-                from peft import PeftModel
+            self.model, loading = Qwen3_5ForCausalLM.from_pretrained(
+                model_id, revision=revision, dtype=getattr(torch, dtype), output_loading_info=True
+            )
+            if loading.get("missing_keys") or loading.get("mismatched_keys") or loading.get("error_msgs"):
+                raise RuntimeError(f"Invalid checkpoint load: {loading}")
+            if quantize:  # bf16 on the CPU, adapter merged exactly, then 4/8-bit weights: the full model never has to fit the GPU
+                path = merged_checkpoint(self.model, adapter)
+                self.model = None  # free the 8 GB CPU copy before the quantized load (a 16 GB host thrashes otherwise)
+                gc.collect()
+                self.model = load_quantized(path, quantize, device)
+            else:
+                self.model = place_model(self.model, device, dtype)
+                if adapter:
+                    from peft import PeftModel
 
-                self.model = PeftModel.from_pretrained(self.model, adapter)
+                    self.model = PeftModel.from_pretrained(self.model, adapter)
         self.pad = self.tokenizer.pad_token_id
         self.answer_ids = []
         for s in ["yes", "no"]:
@@ -106,8 +116,8 @@ class Qwen35Scorer:
         self.meta = {
             "rotary_buffer_precision": "native",
             "adapter_sha256": adapter_sha,
-            "model": model_id,
-            "revision": revision,
+            "model": quantized_model or model_id,
+            "revision": revision,  # a quantized checkpoint derives from this base revision
             "adapter": adapter,
             "device": device,
             "dtype": dtype,

@@ -49,6 +49,7 @@ def _scorer(a):
         max_batch_tokens=a.max_batch_tokens,
         merge=not getattr(a, "fine_tuning", False),
         quantize=a.quantize,
+        quantized_model=a.quantized_model,
     )
 
 
@@ -76,6 +77,9 @@ def _model_args(p):
     p.add_argument("--max-length", type=int, default=32768, help="state + longest question, in tokens; longer input is an error")
     p.add_argument("--max-batch-tokens", type=int, default=16384, help="packed tokens per forward pass")
     p.add_argument("--quantize", choices=["8bit", "4bit"], help="bitsandbytes weights for an 8 GB GPU (extra: quant)")
+    p.add_argument(
+        "--quantized-model", help="a pre-quantized checkpoint (dir or Hugging Face repo, `selfjev quantize` writes one); replaces --adapter"
+    )
     p.add_argument("--calibration", help="calibration JSON from `selfjev calibrate` (must match model/adapter/prompt)")
 
 
@@ -148,6 +152,10 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     _finetune_args(sub.add_parser("finetune", help="LoRA fine-tune selfjev's recipe (Qwen3.5 + shared-prefix tree) on your data"))
     _finetune_args(sub.add_parser("rlcd", help="RLCD (proper-scoring-rule training) from a fine-tuned adapter"), rlcd=True)
+    p = sub.add_parser("quantize", help="write a 4-bit or 8-bit checkpoint of an adapter merged into Qwen3.5-4B (needs a CUDA GPU)")
+    p.add_argument("--adapter", default=DEFAULT_ADAPTER)
+    p.add_argument("--bits", required=True, choices=["8bit", "4bit"])
+    p.add_argument("--out", required=True)
     p = sub.add_parser("merge", help="merge a LoRA adapter into Qwen3.5-4B for --engine vllm")
     p.add_argument("--adapter", default=DEFAULT_ADAPTER)
     p.add_argument("--out", required=True)
@@ -168,7 +176,10 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         for k in ("adapter", "init"):
-            if getattr(a, k, None) and not (k == "adapter" and getattr(a, "engine", "tree") in ("vllm", "ollama")):  # own model flags
+            own = getattr(a, "engine", "tree") in ("vllm", "ollama") or getattr(
+                a, "quantized_model", None
+            )  # these take their own model flags
+            if getattr(a, k, None) and not (k == "adapter" and own):
                 setattr(a, k, _adapter(getattr(a, k)))
         _run(a)
     except ModuleNotFoundError as e:
@@ -245,6 +256,13 @@ def _run(a):
             print(json.dumps([{k: r[k] for k in ("name", "region", "instance_type", "endpoint")} for r in aws.listing()], indent=2))
         else:
             print(json.dumps(getattr(aws, a.action)(a.name), indent=2, default=str))
+    elif a.cmd == "quantize":
+        from .engine.qwen35 import Qwen35Scorer
+
+        sc = Qwen35Scorer(adapter=a.adapter, quantize=a.bits)
+        sc.model.save_pretrained(a.out)
+        sc.tokenizer.save_pretrained(a.out)
+        print(f"{a.bits} checkpoint -> {a.out}")
     elif a.cmd == "merge":
         from .engine.vllm import merge
 

@@ -55,7 +55,7 @@ selfjev serve --host 0.0.0.0 --port 8000
 
 The first start downloads the [selfjev-4b vision adapter](https://huggingface.co/Jwuthrich/selfjev-4b-vision) (230 MB; text and images) and its pinned Qwen3.5-4B base from Hugging Face. `--adapter <dir or Hugging Face repo>` serves another adapter, such as your own fine-tune.
 
-A **24 GB NVIDIA GPU, 16–32 GB host RAM and 50 GB free disk** is a practical starting configuration, not a measured minimum. Memory use depends on text length, question count and concurrency. [Hardware guide →](https://www.selfjev.dev/docs/hardware) · Docker, AWS, Runpod and GCP: [deployment guide →](docs/deploy.md)
+A **24 GB NVIDIA GPU, 16–32 GB host RAM and 50 GB free disk** is a practical starting configuration, not a measured minimum. Memory use depends on text length, question count and concurrency. **8 GB card (RTX 4060 class):** [pre-quantized 4-bit checkpoint](https://huggingface.co/Jwuthrich/selfjev-4b-vision-4bit) (3.3 GB): `selfjev serve --quantized-model Jwuthrich/selfjev-4b-vision-4bit`, ≈ 1 point below bf16 on Decision Bench, texts up to 16K tokens ([measurements](reports/quant/summary.md)); the [8-bit build](https://huggingface.co/Jwuthrich/selfjev-4b-vision-8bit) needs ≈ 10 GB for long texts. Needs `selfjev[serve,gpu,quant]` from GitHub master until the next PyPI release. [Hardware guide →](https://www.selfjev.dev/docs/hardware) · Docker, AWS, Runpod and GCP: [deployment guide →](docs/deploy.md)
 
 | Install | For |
 |---|---|
