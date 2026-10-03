@@ -24,6 +24,22 @@ The vLLM path (`selfjev merge`, then `selfjev serve --engine vllm`) is the one m
 Code: [src/selfjev/training/](../src/selfjev/training/finetune.py) (`finetune.py` the loop, `rlcd.py` the objective). Tests (CPU, a tiny random model):
 [tests/training/test_finetune.py](../tests/training/test_finetune.py).
 
+## Measured: 300 photos of a new task, through the API
+
+Satellite photos of hurricane damage, a task the release gets 61% right zero-shot. 150 labelled photos per class
+(`scripts/data/hurricane_photos.py`, none from the frozen test) went through the user flow of [the API](api.md#fine-tuning):
+a folder of photos -> `upload_file(rows)` -> a job -> `wait_fine_tuning_job` (`scripts/eval/image_finetune_demo.py`),
+on one L40S. The fine-tuned models were then scored on the frozen image test and on eval2 ([table](../reports/hurricane_demo/README.md)):
+
+| | release | 1 epoch (2 steps, 1.8 min) | 5 epochs (10 steps, 2.8 min) |
+|---|---|---|---|
+| hurricane damage (100 questions) | 61.0 | 79.0 (p = 0.003) | **86.0** (p = 2e-5) |
+| the other 9 image tests (1,902 questions) | 92.1 | 91.9 (no family changes significantly) | 91.6 (same; -2 on 3 families) |
+| eval2 (text) | 96.1 | 96.1 | 96.1 |
+
+A small file gives few optimizer steps in one epoch, so jobs now default to enough epochs for 10 steps (at most 10;
+`MIN_STEPS` in `training/finetune.py`); large files still train one epoch.
+
 ## Part 1: fine-tune vs RLCD in plain words
 
 Picture a kid learning to guess which of two boxes holds the candy, and to say how sure they are.

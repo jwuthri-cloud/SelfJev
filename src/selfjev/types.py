@@ -250,7 +250,7 @@ class FileObject(BaseModel):
 class Hyperparameters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    epochs: int = Field(default=1, ge=1, le=10)
+    epochs: int | None = Field(default=None, ge=1, le=10)  # None: auto (selfjev.training.finetune.MIN_STEPS)
     learning_rate: float | None = Field(default=None, gt=0, le=1e-2)
     reward: dict[Literal["log", "brier", "spherical", "accuracy", "confident_miss"], float] | None = None  # rlcd only
     samples: int | None = Field(default=None, ge=2, le=64)

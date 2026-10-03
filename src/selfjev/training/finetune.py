@@ -39,6 +39,7 @@ from .batching import group_by_state, micro_batches, trees_for
 from .losses import grouped_loss, question_correct
 from .rlcd import onehot, report, rlcd_loss, soft_target
 
+MIN_STEPS = 10  # auto epochs: 300 photos gave 2 steps in 1 epoch (hurricane test 61 -> 79%) and 86% at 10 (JOURNAL 2026-10-02)
 LINEAR = ["q_proj", "k_proj", "v_proj", "o_proj", "in_proj_qkv", "in_proj_z", "in_proj_b", "in_proj_a", "out_proj"]
 
 
@@ -112,7 +113,7 @@ def train(
     val=None,
     init=None,
     options_in_question=True,
-    epochs=1,
+    epochs=None,
     lr=None,
     lora_r=64,
     max_length=8192,
@@ -161,7 +162,9 @@ def train(
             it["ref"] = s
     params = [p for p in sc.model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(params, lr=lr, weight_decay=0.01)
-    steps = math.ceil(len(micro_batches(tr, roots, batch_tokens, random.Random(seed))) / grad_accum) * epochs
+    per_epoch = math.ceil(len(micro_batches(tr, roots, batch_tokens, random.Random(seed))) / grad_accum)
+    epochs = epochs or min(10, math.ceil(MIN_STEPS / per_epoch))  # 1 unless the data is small
+    steps = per_epoch * epochs
     warm = max(1, int(0.05 * steps))
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min((s + 1) / warm, max(0.0, (steps - s) / max(1, steps - warm))))
     select = "loss" if mode == "finetune" else "brier"  # the objective's own proper score on validation

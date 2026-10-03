@@ -132,7 +132,8 @@ def run_training(job: FineTuningJob, train: Path, val: Path | None, init: str, r
     """Start `selfjev finetune|rlcd` for a job; returns the process (its exit code decides the job's status)."""
     hp = job.method.hyperparameters
     cmd = [sys.executable, "-m", "selfjev.cli", "finetune" if job.method.type == "supervised" else "rlcd"]
-    cmd += ["--data", str(train), "--out", str(run_dir), "--init", init, "--epochs", str(hp.epochs)]
+    cmd += ["--data", str(train), "--out", str(run_dir), "--init", init]
+    cmd += ["--epochs", str(hp.epochs)] if hp.epochs else []
     cmd += ["--val", str(val)] if val else []
     cmd += ["--lr", str(hp.learning_rate)] if hp.learning_rate else []
     if job.method.type == "rlcd":

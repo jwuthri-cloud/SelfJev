@@ -143,14 +143,16 @@ def test_finetune_then_rlcd_end_to_end_on_a_tiny_model(tmp_path, monkeypatch):
     data.write_text("".join(json.dumps(r) + "\n" for r in rows))
     ft = finetune.train("finetune", str(data), tmp_path / "ft", batch_tokens=512, grad_accum=2, eval_every=5, lora_r=4)
     assert ft["train_questions"] == 38 and ft["val_questions"] == 2 and (tmp_path / "ft/adapter/adapter_model.safetensors").exists()
-    rl = finetune.train("rlcd", str(data), tmp_path / "rl", init=str(tmp_path / "ft/adapter"), batch_tokens=512, grad_accum=2, eval_every=5)
+    assert ft["steps"] >= finetune.MIN_STEPS and ft["epochs"] > 1  # small data: epochs chosen for enough optimizer steps
+    rl = finetune.train(
+        "rlcd", str(data), tmp_path / "rl", init=str(tmp_path / "ft/adapter"), epochs=1, batch_tokens=512, grad_accum=2, eval_every=5
+    )
     assert rl["select_by"] == "validation brier" and {"ece", "brier", "confidently_wrong"} <= set(rl["best"])
     assert json.loads((tmp_path / "rl/train_meta.json").read_text())["rlcd"]["reward"] == {"log": 1.0, "brier": 1.0, "spherical": 1.0}
     for r in rows:  # a teacher's probabilities on every row (scripts/train/jev_soft_targets.py's format)
         r["soft"] = 0.6 if r["question"]["type"] == "binary" else {"a": 0.5, "b": 0.3, "c": 0.2}
     data.write_text("".join(json.dumps(r) + "\n" for r in rows))
     for mode in ("finetune", "rlcd"):
-        m = finetune.train(
-            mode, str(data), tmp_path / f"soft_{mode}", init=str(tmp_path / "ft/adapter"), batch_tokens=512, grad_accum=2, eval_every=5
-        )
+        kw = {"init": str(tmp_path / "ft/adapter"), "epochs": 1, "batch_tokens": 512, "grad_accum": 2, "eval_every": 5}
+        m = finetune.train(mode, str(data), tmp_path / f"soft_{mode}", **kw)
         assert m["soft_targets"] == 38 and m["best"]["n"] == 2
