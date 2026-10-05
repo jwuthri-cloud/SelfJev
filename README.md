@@ -169,7 +169,7 @@ A request a model cannot answer counts as wrong. Jev is shown for reference.
 |---|---|---|---|---|---|---|---|
 | Jev 1.13 (TypeSafe API, reference) | ? | no | paid API | 97.2 | 92.5 | — | — |
 | [openjev](https://huggingface.co/openjev/openjev) | 27B | yes | CC-BY-NC-4.0 | 96.8 | 92.6 | 82.6 | 753 |
-| [**SelfJev-4B Vision**](https://huggingface.co/Jwuthrich/selfjev-4b-vision) | 4B | yes | Apache-2.0 code | 94.7 | 90.7 | 85.1 | 166 |
+| [**SelfJev-4B Vision**](https://huggingface.co/Jwuthrich/selfjev-4b-vision) | 4B | yes | Apache-2.0 code | 94.7 | 90.7 | 85.1 | 100 |
 | [Plumb-4B](https://huggingface.co/crh225/plumb-4b) | 4.2B | no | Apache-2.0 | 93.4 | 84.1 | — | 471 |
 | [jpt-4b](https://huggingface.co/kirp/jpt-4b) | 4.5B | yes | CC-BY-NC-4.0 | 92.5 | 85.0 | 83.8 | 90 |
 | [imajev-4b](https://huggingface.co/mohit67890/imajev-4b) | 4B | yes | Apache-2.0 | 91.5 | 84.9 | 85.2 | 489 |
@@ -181,11 +181,13 @@ A request a model cannot answer counts as wrong. Jev is shown for reference.
 - Every model gets the same Jev-shaped questions; select-all questions become one yes/no per option, which costs SelfJev
   1.4–1.8 points against its native evaluation (96.1 and 92.5). **Held-out images**: the 4 image datasets of the SelfJev
   image test that none of these models trained on (772 questions). **Time**: Text Decisions end to end, 4 requests in
-  flight. ² Refuses inputs over 8,192 tokens (2 % and 1 % of the questions), counted wrong.
+  flight; SelfJev's is version 0.4.2, measured 2026-10-05 on the same GPU model. ² Refuses inputs over 8,192 tokens (2 %
+  and 1 % of the questions), counted wrong.
 - No other model trained on these suites, but they come from the same authors and judges as SelfJev's training data,
   so they favour SelfJev.
 - SelfJev is the most accurate open model at 4.5B parameters or less on both suites (paired tests, p ≤ 0.023) and ties
-  imajev-4b on held-out images; the 27B openjev is higher on Text Decisions. It is slower than most 4B models here.
+  imajev-4b on held-out images; the 27B openjev is higher on Text Decisions. Among the 4B models only jpt-4b answers the
+  suite faster.
 
 Protocol, per-model setups, paired tests and raw reports: [reports/competitors](https://github.com/Jwuthri/SelfJev/blob/master/reports/competitors/README.md).
 <!-- selfjev:comparison:end -->
