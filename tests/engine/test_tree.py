@@ -1,5 +1,6 @@
 """The Qwen3.5 tree equals standalone sequences: scores and gradients, on a tiny random hybrid model (CPU, fp32).
-Covers sibling isolation, right padding inside a level, a root shorter than the conv kernel and two states per batch."""
+Covers sibling isolation, right padding inside a level, a root shorter than the conv kernel, several states per batch
+and a row that ends inside another row's text (the text's attention is one causal call over the longest text)."""
 
 import random
 
@@ -46,7 +47,8 @@ def test_tree_matches_full_sequences():
     sc, rnd = Stub(lm), random.Random(0)
     tok = lambda n: [rnd.randrange(3, 64) for _ in range(n)]
     trees = [build_tree(tok(5), [(tok(3), [tok(2), tok(4), tok(1)]), (tok(1), [tok(3), tok(3)])]), build_tree(tok(2), [(tok(6), [tok(1)])])]
-    w = torch.randn(6)
+    trees.append(build_tree(tok(12), [(tok(1), [tok(1)])]))  # a text longer than the second tree's whole row
+    w = torch.randn(7)
 
     tree_scores = qwen35_tree.score(sc, trees)
     (tree_scores * w).sum().backward()
@@ -61,7 +63,7 @@ def test_tree_matches_full_sequences():
     assert tree_grads.keys() == {n for n, p in lm.named_parameters() if p.grad is not None}
     for n, p in lm.named_parameters():
         if p.grad is not None:
-            assert (tree_grads[n] - p.grad).abs().max() <= 1e-4 * p.grad.abs().max(), n  # fp32 summation-order noise
+            assert (tree_grads[n] - p.grad).abs().max() <= 5e-4 * p.grad.abs().max(), n  # fp32 noise (7e-5 here; a wrong path is O(1))
 
 
 def test_split_branches_keeps_a_token_per_leaf():

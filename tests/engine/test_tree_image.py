@@ -151,4 +151,6 @@ def test_training_on_images_matches_full_forward_gradients():
         kw = {"pixel_values": pixels, "image_grid_thw": grid, "mm_token_type_ids": (x == IMG).int()}
         full.append(sc.readout(m.model(input_ids=x, use_cache=False, **kw).last_hidden_state[0, -1]))
     torch.stack(full).mul(w).sum().backward()
-    assert tree_grads and all(torch.allclose(g, dict(lm.named_parameters())[n].grad, atol=1e-4) for n, g in tree_grads.items())
+    ref = dict(lm.named_parameters())
+    assert tree_grads  # fp32 noise: the tree's norms take the mean square from a reduction, HF's from x.pow(2).mean()
+    assert all((g - ref[n].grad).abs().max() <= 5e-4 * ref[n].grad.abs().max() for n, g in tree_grads.items())

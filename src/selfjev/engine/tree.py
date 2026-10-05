@@ -2,11 +2,16 @@
 
 Token ids are exactly Qwen35Scorer.entry's (challenger-state-first-v1), so the adapters trained here are served by
 TreeServer below (or merged, by selfjev.engine.vllm). One packed row per state (build_tree): root = system prompt + document, then
-per question the longest common prefix of its branches (instruction + "Proposed answer:"), then one leaf per candidate.
-- Full-attention layers read the packed row through tree_mask.
-- Gated DeltaNet layers cannot take a mask: they run level by level (roots; every question segment from its root's
-  final recurrent and conv state; every leaf from its question's), with gradients through those states. Right padding
-  inside a level leaves the state untouched (q = k = v = 0, beta = 0, g = 0).
+per question the longest common prefix of its branches (instruction + "Proposed answer:"), then one leaf per candidate
+(a single candidate stays in its question's segment). A batch of trees is one flat row of real tokens (pack): norms,
+MLPs and projections run once per token and never on padding.
+- Full-attention layers (attention): the text attends causally, as in any sequence, on the fast kernel and with no mask
+  tensor; only the branch tokens need a mask (their text and their ancestors, tree_mask), so nothing is quadratic in the
+  text on the CPU and the text's attention costs what it costs every engine.
+- Gated DeltaNet layers (deltanet) cannot take a mask: the recurrence runs level by level (roots; every question segment
+  from its root's final state; every leaf from its question's), with gradients through those states. Right padding
+  inside a level leaves the state untouched (q = k = v = 0, beta = 0, g = 0). Their convolution reads each token's
+  predecessors on its own path.
 Each leaf therefore equals its standalone sequence (root + question + leaf) up to kernel rounding, and the text is
 encoded once per state instead of once per candidate (tests/engine/test_tree.py checks scores and gradients).
 Images in the root (Qwen35Scorer.root): the vision tower's embeddings replace their placeholder tokens and the root gets
@@ -21,6 +26,8 @@ from types import SimpleNamespace
 import torch
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
+from transformers.integrations.sdpa_attention import sdpa_attention_forward
+from transformers.models.qwen3_5.modeling_qwen3_5 import apply_rotary_pos_emb
 from transformers.models.qwen3_5.modeling_qwen3_5 import torch_chunk_gated_delta_rule as chunk_rule  # fla if installed
 
 from ..core.schemas import InputTooLong, is_image, parse_question
@@ -56,13 +63,17 @@ def root_rope(n, images):
 def build_tree(root, questions, images=()):
     """root: token ids; questions: [(question token ids, [leaf token ids, ...]), ...]; images: Qwen35Scorer.root's ->
     {ids, pos, seg, parent, leaves, root, rope, images}. Segments are laid out depth-first, so ancestors always come first.
-    rope: the root's 3D positions when it has images (else pos, repeated)."""
+    A question with one leaf (yes/no) is one segment, read at its end: a batch of such questions has no leaf level, a third
+    less DeltaNet work per layer for a short request. rope: the root's 3D positions when it has images (else pos, repeated)."""
     rope = root_rope(len(root), images) if images else None
     r = len(root) if rope is None else int(rope.max()) + 1
     ids, pos, seg, parent, leaves = list(root), list(range(len(root))), [0] * len(root), [-1], []
     for q_ids, leaf_list in questions:
         g = len(parent)
         parent.append(0)
+        if len(leaf_list) == 1:
+            q_ids, leaf_list = q_ids + leaf_list[0], []
+            leaves.append(len(ids) + len(q_ids) - 1)
         ids += q_ids
         pos += range(r, r + len(q_ids))
         seg += [g] * len(q_ids)
@@ -147,37 +158,74 @@ def encode_items(sc, examples, max_length):
     return items, roots, dict(dropped)
 
 
-def pack(trees, pad, device):
-    """Index tensors for one micro-batch of trees, shared by every layer: ids [B, T], pos [3, B, T], mask [B, 1, T, T]
-    (tree_mask; pads see only themselves), leaves (flat indices of the readout tokens) and, per depth (roots,
-    question segments, leaves), the DeltaNet levels (idx [N, L] flat token indices, valid [N, L], lens [N],
-    parent [N] = index into the previous level, None for roots)."""
-    B, T = len(trees), max(len(t["ids"]) for t in trees)
-    ids, pos = torch.full((B, T), pad, dtype=torch.long), torch.zeros((3, B, T), dtype=torch.long)
-    mask = torch.eye(T, dtype=torch.bool).repeat(B, 1, 1)
-    nodes, where, leaves = [[], [], []], {}, []
+def pack(trees, kernel, device):
+    """Index tensors for one micro-batch of trees, shared by every layer. The hidden states are one flat row of real tokens
+    [N, d], tree after tree: norms, MLPs, projections and the DeltaNet convolution never run on padding, so trees of
+    unequal length share a forward at almost no cost. Only attention pads, to rows [B, T], and each DeltaNet level to
+    its longest segment, by pointing at row N: the zero row deltanet() appends.
+    -> ids [N]; for attention(): rows [B, T] (a row's tokens in the flat row; padding -> token 0), back [N] (each
+    token's place in the padded rows), pos [3, B, T] and attn (root = the longest text; q [B, Nb] = each branch token's
+    position in its row; mask [B, 1, Nb, T] = what it may attend to, its whole text and its ancestors (tree_mask); flat /
+    keep put the branch outputs back); leaves (indices of the readout tokens); for deltanet(), per depth (roots, question
+    segments, leaves), levels (idx [n, L] token indices, parent [n] = index into the previous level, None for roots) and
+    fix / pred: the tokens whose `kernel` - 1 predecessors on their path are not the ones before them in the flat row
+    (the first of every segment, and row N), with those predecessors (-> N where the path is shorter).
+    A level's n is rounded up to a power of 2 with empty segments: fla's kernels autotune per batch size (0.4-1.1 s on an
+    L40S for each new n) and n changes with every traffic mix; ~15 sizes remain, which TreeServer.warm_kernels tunes."""
+    B, T, total = len(trees), max(len(t["ids"]) for t in trees), sum(len(t["ids"]) for t in trees)
+    n_tok = torch.tensor([len(t["ids"]) for t in trees])
+    nb = n_tok - torch.tensor([t["root"] for t in trees])
+    rows, pos = torch.zeros((B, T), dtype=torch.long), torch.zeros((3, B, T), dtype=torch.long)
+    bq, bmask = torch.zeros((B, int(nb.max())), dtype=torch.long), torch.zeros((B, int(nb.max()), T), dtype=torch.bool)
+    bmask[:, :, 0] = True  # padding attends to one token: a fully masked row is NaN, and so is its gradient
+    nodes, where, leaves, off = [[], [], []], {}, [], 0
+    fix, pred = [total], [[total] * kernel]
     for b, t in enumerate(trees):
-        n, seg, par = len(t["ids"]), t["seg"], t["parent"]
-        ids[b, :n], pos[:, b, :n], mask[b, :n, :n] = torch.tensor(t["ids"]), torch.tensor(t["pos"]), tree_mask(t)
+        n, r, seg, par = len(t["ids"]), t["root"], t["seg"], t["parent"]
+        rows[b, :n], pos[:, b, :n] = torch.arange(off, off + n), torch.tensor(t["pos"])
+        bq[b, : n - r], bmask[b, : n - r, :r], bmask[b, : n - r, r:n] = torch.arange(r, n), True, tree_mask(t, branches_only=True)
         if t.get("rope") is not None:
             pos[:, b, : t["root"]] = t["rope"]
-        start, length = {}, Counter(seg)
+        start, length, tail = {}, Counter(seg), {-1: []}
         for i, g in enumerate(seg):
             start.setdefault(g, i)
         for g in range(len(par)):  # build_tree numbers parents before children
             d, p = (0, None) if par[g] < 0 else (where[b, par[g]][0] + 1, where[b, par[g]][1])
             where[b, g] = (d, len(nodes[d]))
-            nodes[d].append((b * T + start.get(g, 0), length[g], p))
-        leaves += [b * T + i for i in t["leaves"]]
+            nodes[d].append((off + start.get(g, 0), length[g], p))
+            own = range(off + start.get(g, 0), off + start.get(g, 0) + length[g])
+            for j, tok in enumerate(own[: kernel - 1]):
+                before = (tail[par[g]] + list(own[:j]))[-(kernel - 1) :]
+                fix.append(tok)
+                pred.append([total] * (kernel - 1 - len(before)) + before + [tok])
+            tail[g] = (tail[par[g]] + list(own[-(kernel - 1) :]))[-(kernel - 1) :]
+        leaves += [off + i for i in t["leaves"]]
+        off += n
     levels = []
     for d, ns in enumerate(n for n in nodes if n):
+        ns = ns + [(0, 0, 0)] * ((1 << (len(ns) - 1).bit_length()) - len(ns))
         s, ln = torch.tensor([x[0] for x in ns]), torch.tensor([x[1] for x in ns])
         ar = torch.arange(max(1, int(ln.max())))
-        valid = ar[None] < ln[:, None]
         parent = None if d == 0 else torch.tensor([x[2] for x in ns], device=device)
-        levels.append((torch.where(valid, s[:, None] + ar, s[:, None]).to(device), valid.to(device), ln.to(device), parent))
+        levels.append((torch.where(ar[None] < ln[:, None], s[:, None] + ar, total).to(device), parent))
+    keep = torch.arange(bq.shape[1])[None] < nb[:, None]
+    attn = SimpleNamespace(
+        root=max(t["root"] for t in trees),
+        q=bq.to(device),
+        mask=bmask[:, None].to(device),
+        flat=(torch.arange(B)[:, None] * T + bq)[keep].to(device),
+        keep=keep.reshape(-1).to(device),
+    )
     return SimpleNamespace(
-        ids=ids.to(device), pos=pos.to(device), mask=mask[:, None].to(device), leaves=torch.tensor(leaves, device=device), levels=levels
+        ids=torch.tensor([i for t in trees for i in t["ids"]], device=device),
+        rows=rows.to(device),
+        back=(torch.arange(B)[:, None] * T + torch.arange(T))[torch.arange(T)[None] < n_tok[:, None]].to(device),
+        pos=pos.to(device),
+        attn=attn,
+        leaves=torch.tensor(leaves, device=device),
+        levels=levels,
+        fix=torch.tensor(fix, device=device),
+        pred=torch.tensor(pred, device=device),
     )
 
 
@@ -185,86 +233,113 @@ def l2norm(x):
     """fla's in-kernel q / k normalization (fp32, eps 1e-6, back to x's dtype), in torch. fla's l2norm kernel autotunes per
     input size (constexpr NB = rows / 65,536, rows = sequences x length x heads), and a batch of requests brings new rows
     with every traffic mix: bursts of 32 requests waited 19-29 s instead of 10 (A10G, 2026-10-01, JOURNAL 15:30)."""
-    x32 = x.float()
-    return (x32 * torch.rsqrt(x32.square().sum(-1, keepdim=True) + 1e-6)).to(x.dtype)
+    n = torch.linalg.vector_norm(x, dim=-1, keepdim=True, dtype=torch.float32)  # no fp32 copy of x
+    return (x * torch.rsqrt(n.square() + 1e-6)).to(x.dtype)
 
 
-def bucketed_rule(q, k, v, g, beta, initial_state):
-    """chunk_rule over N sequences, N padded with empty ones to a power of 2: fla's kernels autotune per batch size (0.4-1.1 s
-    on an L40S for each new N) and a tree's N (roots, questions or leaves in a batch) changes with every traffic mix.
-    Buckets bound that to ~15 sizes, which TreeServer.warm_kernels tunes at start; q and k are normalized here (l2norm)."""
-    n = q.shape[0]
-    pad = (1 << (n - 1).bit_length()) - n
-
-    def grow(t):
-        return t if t is None or not pad else torch.cat([t, t.new_zeros((pad, *t.shape[1:]))])
-
-    o, state = chunk_rule(grow(l2norm(q)), grow(l2norm(k)), grow(v), g=grow(g), beta=grow(beta), initial_state=grow(initial_state),
-                          output_final_state=True, use_qk_l2norm_in_kernel=False)  # fmt: skip
-    return o[:n], state[:n]
+def rms_norm(mod, x):
+    """Qwen3_5RMSNorm.forward (fp32 arithmetic on x's values, then x's dtype), without the fp32 copies of x and of its
+    square: the mean square is a reduction. Worth 5-6 % of a request with gated_norm (L40S, JOURNAL 2026-10-05); in
+    bf16 it differs from the module on 0.01 % of the values, by one rounding step."""
+    n = torch.linalg.vector_norm(x, dim=-1, keepdim=True, dtype=torch.float32)
+    return (x * torch.rsqrt(n.square() / x.shape[-1] + mod.eps) * (1.0 + mod.weight.float())).type_as(x)
 
 
-def deltanet(mod, x, levels):
-    """Qwen3_5GatedDeltaNet.forward over a packed tree, level by level. x: [B, T, d] after input_layernorm."""
+def gated_norm(mod, x, gate):
+    """Qwen3_5RMSNormGated.forward, rounded to x's dtype where it rounds, without the same two fp32 copies."""
+    n = torch.linalg.vector_norm(x, dim=-1, keepdim=True, dtype=torch.float32)
+    h = mod.weight * (x * torch.rsqrt(n.square() / x.shape[-1] + mod.variance_epsilon)).to(x.dtype)
+    return (h * F.silu(gate.float())).to(x.dtype)
+
+
+def deltanet(mod, x, p):
+    """Qwen3_5GatedDeltaNet.forward over packed trees (p: pack's). x: [N, d] after input_layernorm, the flat row.
+    Everything per token runs once on the flat row plus one zero row, which is what padding points at: projections, the
+    causal convolution (one pass over the row as if it were one sequence, then p.fix: the tokens that start a segment,
+    whose predecessors are their path's), q / k normalization (before the key heads are repeated), the output norm.
+    Per level only the recurrence is left: gather q, k, v, g, beta, run the kernel from the parents' final states and
+    put the outputs back. Before this layout the work around the kernel, repeated per level on padded segments, was 40 %
+    of a request (L40S, eval2's requests, JOURNAL 2026-10-05)."""
+    N, Hk, Hv = len(x), mod.num_k_heads, mod.num_v_heads
+    x0, w = F.pad(x, (0, 0, 0, 1)), mod.conv1d.weight
+    real = (torch.arange(N + 1, device=x.device) < N)[:, None]
+    qkv = mod.in_proj_qkv(x0)
+    conv = flat_conv(qkv.to(w.dtype), w)
+    conv = conv.index_copy(0, p.fix, (qkv[p.pred].float() * w[:, 0].T.float()).sum(1).to(w.dtype))
+    conv = F.silu(conv).to(x.dtype)
+    qk = l2norm(conv[:, : 2 * mod.key_dim].reshape(N + 1, 2 * Hk, mod.head_k_dim))
+    q, k = qk[:, :Hk].repeat_interleave(Hv // Hk, dim=1), qk[:, Hk:].repeat_interleave(Hv // Hk, dim=1)
+    v = conv[:, 2 * mod.key_dim :].reshape(N + 1, Hv, mod.head_v_dim)
+    beta = mod.in_proj_b(x0).sigmoid() * real
+    g = -mod.A_log.float().exp() * F.softplus(mod.in_proj_a(x0).float() + mod.dt_bias) * real
+    out, state = x.new_zeros(N + 1, Hv, mod.head_v_dim), None
+    for idx, parent in p.levels:
+        o, state = chunk_rule(q[idx], k[idx], v[idx], g=g[idx], beta=beta[idx], initial_state=None if parent is None else state[parent],
+                              output_final_state=True, use_qk_l2norm_in_kernel=False)  # fmt: skip
+        out.index_copy_(0, idx.reshape(-1), o.reshape(-1, Hv, mod.head_v_dim))  # padding lands on row N
+    z = mod.in_proj_z(x)
+    return mod.out_proj(gated_norm(mod.norm, out[:N], z.reshape(N, Hv, -1)).reshape(N, -1))
+
+
+def flat_conv(x, w):
+    """The depthwise causal convolution of Qwen3_5GatedDeltaNet over one sequence x [T, C] (w: [C, 1, K])."""
+    return F.conv1d(x.T[None], w, groups=x.shape[1], padding=w.shape[2] - 1)[0, :, : len(x)].T
+
+
+def attention(mod, x, cos, sin, a):
+    """Qwen3_5Attention.forward over packed trees (a: pack's attn). Text tokens attend causally, in one call over the first
+    a.root positions of every row (causal, so a shorter text never sees what follows it; what that call returns beyond a
+    row's text is replaced or is padding). Branch tokens attend to all of their text and to their ancestors: a second
+    call with the [Nb, T] mask. The [T, T] mask this replaces cost 14 % of eval2's requests on an L40S, most of it building
+    the mask on the CPU (JOURNAL 2026-10-05)."""
     B, T, _ = x.shape
-    flat, K, C = x.reshape(B * T, -1), mod.conv_kernel_size, mod.conv_dim
-    out = flat.new_zeros(B * T, mod.out_proj.out_features)
-    state = ctx = None
-    for idx, valid, lens, parent in levels:
-        N, L = idx.shape
-        h, m = flat[idx], valid[..., None]
-        qkv = mod.in_proj_qkv(h) * m
-        z = mod.in_proj_z(h).reshape(N, L, -1, mod.head_v_dim)
-        b, a = mod.in_proj_b(h), mod.in_proj_a(h)
-        prior = qkv.new_zeros(N, C, K - 1) if parent is None else ctx[parent]  # the path's last K-1 conv inputs
-        ext = torch.cat([prior, qkv.transpose(1, 2)], -1)
-        ctx = ext.gather(2, (lens[:, None] + torch.arange(K - 1, device=x.device))[:, None, :].expand(N, C, K - 1))
-        conv = (F.silu(F.conv1d(ext.to(mod.conv1d.weight.dtype), mod.conv1d.weight, groups=C)).to(qkv.dtype).transpose(1, 2)) * m
-        q, k, v = torch.split(conv, [mod.key_dim, mod.key_dim, mod.value_dim], dim=-1)
-        q, k = q.reshape(N, L, -1, mod.head_k_dim), k.reshape(N, L, -1, mod.head_k_dim)
-        v = v.reshape(N, L, -1, mod.head_v_dim)
-        beta = b.sigmoid() * m
-        g = -mod.A_log.float().exp() * F.softplus(a.float() + mod.dt_bias) * m
-        if mod.num_v_heads // mod.num_k_heads > 1:
-            q = q.repeat_interleave(mod.num_v_heads // mod.num_k_heads, dim=2)
-            k = k.repeat_interleave(mod.num_v_heads // mod.num_k_heads, dim=2)
-        o, state = bucketed_rule(q, k, v, g, beta, None if parent is None else state[parent])
-        o = mod.out_proj(mod.norm(o.reshape(-1, mod.head_v_dim), z.reshape(-1, mod.head_v_dim)).reshape(N, L, -1))
-        keep = valid.reshape(-1)
-        out = out.index_copy(0, idx.reshape(-1)[keep], o.reshape(N * L, -1)[keep])
-    return out.view(B, T, -1)
+    q, gate = torch.chunk(mod.q_proj(x).view(B, T, -1, 2 * mod.head_dim), 2, dim=-1)
+    q = rms_norm(mod.q_norm, q).transpose(1, 2)
+    k = rms_norm(mod.k_norm, mod.k_proj(x).view(B, T, -1, mod.head_dim)).transpose(1, 2)
+    v = mod.v_proj(x).view(B, T, -1, mod.head_dim).transpose(1, 2)
+    q, k = apply_rotary_pos_emb(q, k, cos, sin)
+    r = a.root
+    text = sdpa_attention_forward(mod, q[:, :, :r], k[:, :, :r], v[:, :, :r], None, scaling=mod.scaling, is_causal=True)[0]
+    qb = q.gather(2, a.q[:, None, :, None].expand(-1, q.shape[1], -1, q.shape[3]))
+    branch = sdpa_attention_forward(mod, qb, k, v, a.mask, scaling=mod.scaling, is_causal=False)[0]
+    out = torch.cat([text.reshape(B, r, -1), text.new_zeros(B, T - r, gate.shape[2] * gate.shape[3])], 1).reshape(B * T, -1)
+    out = out.index_copy(0, a.flat, branch.reshape(-1, out.shape[1])[a.keep]).view(B, T, -1)
+    return mod.o_proj(out * torch.sigmoid(gate.reshape(B, T, -1)))
 
 
-def _layer(layer, h, cos, sin, mask, levels):
-    x = layer.input_layernorm(h)
+def _layer(layer, h, cos, sin, p):
+    x = rms_norm(layer.input_layernorm, h)
     if layer.block_type == "linear_attention":
-        x = deltanet(layer.linear_attn, x, levels)
+        x = deltanet(layer.linear_attn, x, p)
     else:
-        x = layer.self_attn(hidden_states=x, position_embeddings=(cos, sin), attention_mask=mask)[0]
+        x = attention(layer.self_attn, x[p.rows], cos, sin, p.attn).flatten(0, 1)[p.back]
     h = h + x
-    return h + layer.mlp(layer.post_attention_layernorm(h))
+    return h + layer.mlp(rms_norm(layer.post_attention_layernorm, h))
 
 
 def score(sc, trees, grad_checkpoint=True):
     """Leaf scores (z_yes - z_no, Qwen35Scorer.readout) of a list of build_tree dicts, in leaf order.
     Per-layer activation checkpointing while training (HF's own drops the cache path this replaces)."""
-    dec, p = sc.decoder(), pack(trees, sc.pad, sc.device)
-    h = dec.embed_tokens(p.ids)
-    for b, t in enumerate(trees):
+    dec = sc.decoder()
+    kernel = next(layer.linear_attn.conv_kernel_size for layer in dec.layers if layer.block_type == "linear_attention")
+    p = pack(trees, kernel, sc.device)
+    h, off = dec.embed_tokens(p.ids), 0
+    for t in trees:
         for pixels, grid, start in t.get("images", ()):  # ponytail: one image per vision call; batch them if images dominate
             if isinstance(pixels, str):
                 pixels = sc.image(pixels)[0]
             with torch.no_grad():  # frozen tower
                 e = sc.visual(pixels.to(sc.device, sc.visual.dtype), grid_thw=grid.to(sc.device)).pooler_output
-            h[b, start : start + len(e)] = e.to(h.dtype)
+            h[off + start : off + start + len(e)] = e.to(h.dtype)
+        off += len(t["ids"])
     cos, sin = dec.rotary_emb(h, p.pos)
     for layer in dec.layers:
         if grad_checkpoint and torch.is_grad_enabled():
-            h = checkpoint(_layer, layer, h, cos, sin, p.mask, p.levels, use_reentrant=False)
+            h = checkpoint(_layer, layer, h, cos, sin, p, use_reentrant=False)
         else:
-            h = _layer(layer, h, cos, sin, p.mask, p.levels)
-    h = dec.norm(h)
-    return sc.readout(h.reshape(-1, h.shape[-1])[p.leaves])
+            h = _layer(layer, h, cos, sin, p)
+    h = rms_norm(dec.norm, h)
+    return sc.readout(h[p.leaves])
 
 
 class TreeServer:
@@ -317,7 +392,7 @@ class TreeServer:
 
     @torch.inference_mode()
     def warm_kernels(self):
-        """Autotune fla's DeltaNet kernels for every batch-size bucket of bucketed_rule now, not on live requests: 42 s on an
+        """Autotune fla's DeltaNet kernels for every batch-size bucket of pack's levels now, not on live requests: 42 s on an
         A10G the first time, then from Triton's disk cache (0.5 s). Nothing to do on the torch fallback (no fla)."""
         import importlib.util
 
@@ -331,7 +406,7 @@ class TreeServer:
             q, v = torch.zeros(n, L, H, mod.head_k_dim, **z), torch.zeros(n, L, H, mod.head_v_dim, **z)
             g = torch.zeros(n, L, H, device=self.device)
             for init in (None, torch.zeros(n, H, mod.head_k_dim, mod.head_v_dim, device=self.device)):  # roots, then deeper levels
-                bucketed_rule(q, q, v, g, g.to(dt), init)
+                chunk_rule(q, q, v, g=g, beta=g.to(dt), initial_state=init, output_final_state=True, use_qk_l2norm_in_kernel=False)
             n *= 2
 
     @torch.inference_mode()
