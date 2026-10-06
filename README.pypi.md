@@ -96,8 +96,8 @@ result = client.system_one(
 )
 ```
 
-The image is read once and every question is answered against it: 163 ms for one image and one question on an L40S,
-136 ms for text.
+The image is read once and every question is answered against it: 97 ms for one image and one question on an L40S,
+73 ms for text.
 
 **Fine-tuning** (a server started with `selfjev serve --fine-tuning`): upload rows, start a job, use its model. A folder
 of labelled photos is a few lines:
