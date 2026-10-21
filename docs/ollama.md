@@ -17,7 +17,7 @@ Ollama picks up the vision projector (`mmproj-…gguf`) from the same repo, so b
 ## Serve Jev's API
 
 ```bash
-pip install "selfjev[ollama]"        # fastapi + uvicorn, no torch
+pip install "selfjevai-sdk[ollama]"        # fastapi + uvicorn, no torch
 selfjev serve --engine ollama --ollama-model hf.co/Jwuthrich/selfjev-4b-vision-GGUF:Q8_0
 ```
 
@@ -55,7 +55,7 @@ Scored through `selfjev eval --engine ollama` on one L40S (2026-10-01), the same
 ## Limits
 
 - **Slower than the tree engine for many questions** (one request per option; the tree engine is nearly flat in the number of
-  questions, [speed](speed.md)). Fine for a few questions on a laptop; use `selfjev serve` on a GPU for many.
+  questions, [speed](https://www.selfjev.dev/research/)). Fine for a few questions on a laptop; use `selfjev serve` on a GPU for many.
 - **Tokenization differs at one boundary.** The tree engine tokenizes the space after `Question:` as its own token (how the
   model was trained); Ollama tokenizes the whole prompt and merges it into the first word. The text is identical
   (`tests/engine/test_ollama.py`); the effect on accuracy is part of the gap in the table.

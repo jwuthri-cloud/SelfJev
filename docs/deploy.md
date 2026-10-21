@@ -6,8 +6,7 @@ LoRA). Three ways to run it, from the most hands-on to the least.
 ## On a GPU machine you have
 
 ```bash
-git clone https://github.com/Jwuthri/SelfJev.git && cd SelfJev
-git lfs pull --include "weights/selfjev_4b/*"
+git clone https://github.com/jwuthri-cloud/SelfJev.git && cd SelfJev
 uv sync --extra serve --extra gpu
 SELFJEV_API_KEYS=my-key uv run selfjev serve --host 0.0.0.0 --port 8000
 ```
@@ -20,7 +19,7 @@ or `SELFJEV_API_KEY` in your client environment. Hugging Face tokens and Jev API
 Useful flags: `--max-length` (state plus longest question, default 32,768 tokens), `--max-batch-tokens` (tokens packed
 per forward pass), `--calibration` (temperatures from `selfjev calibrate`), `--engine vllm --model-dir <merged>` (vLLM on
 weights merged by `selfjev merge`: fast for one question per request, slower for many; the default tree engine reads
-the text once for all questions, see [speed](speed.md)).
+the text once for all questions, see [speed](https://www.selfjev.dev/research/)).
 `--engine ollama --ollama-model <name>` serves a GGUF through Ollama on a laptop or CPU box, with no torch ([Ollama](ollama.md)).
 
 ## Download the merged model
@@ -33,7 +32,6 @@ No separate base or adapter download is needed. The default TreeServer uses the 
 ## Docker
 
 ```bash
-git lfs pull --include "weights/selfjev_4b/*"
 docker build -f deploy/Dockerfile -t selfjev .
 docker run --gpus all -p 8000:8000 -e SELFJEV_API_KEYS=my-key selfjev
 ```
@@ -44,7 +42,7 @@ environment or an `.env` file.
 
 ## AWS, one command
 
-Needs AWS credentials that boto3 finds (for an SSO profile: `AWS_PROFILE=<profile>`) and `pip install "selfjev[deploy]"`
+Needs AWS credentials that boto3 finds (for an SSO profile: `AWS_PROFILE=<profile>`) and `pip install "selfjevai-sdk[deploy]"`
 (or `uv sync --extra deploy`).
 
 ```bash
@@ -94,8 +92,8 @@ To train elsewhere (a bigger box, a notebook), run `selfjev finetune` or `selfje
 `scripts/aws/e2e.py` deploys a commit this way (`--fine-tuning`), then checks through the SDK: health, auth and error
 codes, every question type on a ticket with obvious answers, Jev's paths and model names, 16 concurrent requests, a
 supervised and an RLCD fine-tuning job over HTTP and their models; it records every HTTP call and tears the box down.
-Last run: [2026-09-28](../reports/e2e/2026-09-28/report.md), 14 of 14 checks passed on an L40S in 26 minutes (≈ $0.81).
-A 75-second [video](../reports/e2e/2026-09-28/selfjev_e2e.mp4) replays that run from its record
+Last run: [2026-09-28](https://www.selfjev.dev/research/), 14 of 14 checks passed on an L40S in 26 minutes (≈ $0.81).
+A 75-second [video](https://www.selfjev.dev/research/) replays that run from its record
 (`scripts/docs/e2e_video.py`: every answer and number on screen comes from the transcript).
 
 ## Operating it

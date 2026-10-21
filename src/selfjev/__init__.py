@@ -20,7 +20,7 @@ from .client import (
 )
 from .types import Choice, DecisionRequest, DecisionResponse, FileObject, FineTuningJob, JobEvent, Multi, Noul, Score, TrainingRow
 
-__version__ = _version("selfjev")  # one source: pyproject.toml
+__version__ = _version("selfjevai-sdk")  # one source: pyproject.toml
 __all__ = [
     "APIConnectionError",
     "APIError",

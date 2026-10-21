@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 945" width="1200" height="945" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="945" fill="#ffffff"/>
+
+  <!-- title -->
+  <text x="600" y="44" text-anchor="middle" font-size="23" font-weight="700" fill="#0f172a">Fine-tune vs RLCD: same questions, a different learning signal</text>
+  <text x="600" y="70" text-anchor="middle" font-size="14.5" fill="#64748b">Fine-tuning learns the answer. RLCD, Jev's name for training on calibration scores, learns how sure to be.</text>
+
+  <!-- ============ left panel: fine-tune ============ -->
+  <rect x="30" y="92" width="555" height="508" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <rect x="50" y="108" width="150" height="30" rx="15" fill="#2563eb"/>
+  <text x="125" y="128" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">1 · Fine-tune</text>
+  <text x="214" y="128" font-size="15" font-style="italic" fill="#2563eb">learn the answer</text>
+
+  <rect x="50" y="152" width="515" height="156" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <g font-size="13.5">
+    <text x="66" y="178" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">text</text>
+    <text x="152" y="178" fill="#0f172a">Ticket 4411: I was charged twice for March…</text>
+    <text x="66" y="202" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">question</text>
+    <text x="152" y="202" fill="#0f172a">Which team should handle this?</text>
+    <text x="66" y="226" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">options</text>
+    <text x="152" y="226" fill="#0f172a">billing · tech</text>
+    <text x="66" y="254" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">target</text>
+    <rect x="146" y="238" width="66" height="23" rx="6" fill="#dbeafe"/>
+    <text x="152" y="254" fill="#1d4ed8" font-weight="700">billing</text>
+    <text x="222" y="254" fill="#1d4ed8">← the signal</text>
+    <text x="66" y="288" fill="#94a3b8" font-style="italic">nothing else is needed</text>
+  </g>
+
+  <line x1="307" y1="308" x2="307" y2="330" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="140" y="334" width="335" height="60" rx="10" fill="#dbeafe" stroke="#93c5fd"/>
+  <text x="307" y="358" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">Qwen3.5-4B + LoRA (shared-prefix tree)</text>
+  <text x="307" y="381" text-anchor="middle" font-size="13.5" fill="#1e3a8a">states: billing 0.62 · tech 0.38</text>
+
+  <line x1="307" y1="394" x2="307" y2="416" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="100" y="420" width="415" height="56" rx="10" fill="#ffffff" stroke="#93c5fd"/>
+  <text x="307" y="454" text-anchor="middle" font-size="14.5" font-family="Menlo, monospace" fill="#0f172a">loss = −log p(billing) = −log 0.62 = 0.48</text>
+
+  <line x1="307" y1="476" x2="307" y2="498" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="60" y="502" width="495" height="80" rx="10" fill="#eff6ff"/>
+  <text x="307" y="532" text-anchor="middle" font-size="14.5" font-weight="700" fill="#1e3a8a">Update: raise p(billing) toward 100%</text>
+  <text x="307" y="555" text-anchor="middle" font-size="13.5" fill="#334155">on every example, for whatever its label says.</text>
+  <text x="307" y="574" text-anchor="middle" font-size="13" fill="#64748b">One gradient step per question, straight from the target.</text>
+
+  <!-- ============ right panel: RLCD ============ -->
+  <rect x="615" y="92" width="555" height="508" rx="14" fill="#fffaf5" stroke="#fed7aa"/>
+  <rect x="635" y="108" width="120" height="30" rx="15" fill="#ea580c"/>
+  <text x="695" y="128" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">2 · RLCD</text>
+  <text x="769" y="128" font-size="15" font-style="italic" fill="#ea580c">learn how sure to be</text>
+
+  <rect x="635" y="152" width="515" height="156" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <g font-size="13.5">
+    <text x="651" y="178" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">text</text>
+    <text x="737" y="178" fill="#0f172a">Ticket 4411: I was charged twice for March…</text>
+    <text x="651" y="202" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">question</text>
+    <text x="737" y="202" fill="#0f172a">Which team should handle this?</text>
+    <text x="651" y="226" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">options</text>
+    <text x="737" y="226" fill="#0f172a">billing · tech</text>
+    <text x="651" y="250" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">target</text>
+    <text x="737" y="250" fill="#0f172a">billing <tspan fill="#64748b">(only used to score a report)</tspan></text>
+    <text x="651" y="274" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">reward</text>
+    <rect x="731" y="259" width="306" height="22" rx="6" fill="#ffedd5"/>
+    <text x="737" y="274" fill="#c2410c" font-weight="700">log + Brier + spherical score</text>
+    <text x="651" y="297" fill="#64748b" font-family="Menlo, monospace" font-size="12.5">anchor</text>
+    <text x="737" y="297" fill="#0f172a">the fine-tuned model's probabilities</text>
+  </g>
+
+  <line x1="892" y1="308" x2="892" y2="330" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="725" y="334" width="335" height="60" rx="10" fill="#ffedd5" stroke="#fdba74"/>
+  <text x="892" y="358" text-anchor="middle" font-size="14" font-weight="700" fill="#7c2d12">the same model, started from fine-tune</text>
+  <text x="892" y="381" text-anchor="middle" font-size="13.5" fill="#7c2d12">states: billing 0.62 · tech 0.38</text>
+
+  <line x1="892" y1="394" x2="892" y2="416" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <rect x="635" y="420" width="515" height="100" rx="10" fill="#ffffff" stroke="#fdba74"/>
+  <text x="892" y="440" text-anchor="middle" font-size="12.5" fill="#64748b">sampled reports around its scores, p(billing) → reward (8 per question; 5 shown)</text>
+  <g font-size="13.5" text-anchor="middle">
+    <rect x="647" y="452" width="90" height="28" rx="7" fill="#f1f5f9"/><text x="692" y="471" fill="#0f172a">0.48</text>
+    <rect x="747" y="452" width="90" height="28" rx="7" fill="#f1f5f9"/><text x="792" y="471" fill="#0f172a">0.55</text>
+    <rect x="847" y="452" width="90" height="28" rx="7" fill="#f1f5f9"/><text x="892" y="471" fill="#0f172a">0.62</text>
+    <rect x="947" y="452" width="90" height="28" rx="7" fill="#f1f5f9"/><text x="992" y="471" fill="#0f172a">0.70</text>
+    <rect x="1047" y="452" width="90" height="28" rx="7" fill="#f1f5f9"/><text x="1092" y="471" fill="#0f172a">0.78</text>
+    <text x="692" y="503" fill="#dc2626" font-weight="700">−0.60</text>
+    <text x="792" y="503" fill="#dc2626" font-weight="700">−0.23</text>
+    <text x="892" y="503" fill="#16a34a" font-weight="700">+0.09</text>
+    <text x="992" y="503" fill="#16a34a" font-weight="700">+0.38</text>
+    <text x="1092" y="503" fill="#16a34a" font-weight="700">+0.62</text>
+  </g>
+
+  <rect x="645" y="530" width="495" height="60" rx="10" fill="#fff7ed"/>
+  <text x="892" y="554" text-anchor="middle" font-size="14.5" font-weight="700" fill="#7c2d12">Update: shift toward reports that beat the mean</text>
+  <text x="892" y="577" text-anchor="middle" font-size="13.5" fill="#334155">(green), with a KL penalty to stay near the fine-tuned model.</text>
+
+  <!-- ============ bottom left: the data ============ -->
+  <rect x="30" y="620" width="555" height="305" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="50" y="650" font-size="17" font-weight="700" fill="#0f172a">What the data must contain</text>
+  <rect x="50" y="668" width="92" height="24" rx="12" fill="#2563eb"/>
+  <text x="96" y="685" text-anchor="middle" font-size="12.5" font-weight="700" fill="#ffffff">Fine-tune</text>
+  <text x="156" y="685" font-size="14" fill="#0f172a">the correct answer (target) for every example.</text>
+  <rect x="50" y="706" width="92" height="24" rx="12" fill="#ea580c"/>
+  <text x="96" y="723" text-anchor="middle" font-size="12.5" font-weight="700" fill="#ffffff">RLCD</text>
+  <text x="156" y="723" font-size="14" fill="#0f172a">a way to score what the model states. Here: proper</text>
+  <text x="156" y="745" font-size="14" fill="#0f172a">scores against the same target. It can also be a cost</text>
+  <text x="156" y="767" font-size="14" fill="#0f172a">table, a judge's verdict or what happened next,</text>
+  <text x="156" y="789" font-size="14" fill="#0f172a">with no answer key at all.</text>
+  <line x1="50" y1="810" x2="565" y2="810" stroke="#e2e8f0"/>
+  <text x="50" y="836" font-size="13.5" fill="#334155">In our runs both read the same file, in this order:</text>
+  <text x="50" y="860" font-size="13" font-family="Menlo, monospace" fill="#0f172a">pjev finetune --data train.jsonl --out runs/mine</text>
+  <text x="50" y="882" font-size="13" font-family="Menlo, monospace" fill="#0f172a">pjev rlcd --data train.jsonl --init runs/mine/adapter</text>
+  <text x="50" y="908" font-size="12.5" fill="#64748b">Fine-tuning is roughly RLCD with only the log score, no sampling and no anchor.</text>
+
+  <!-- ============ bottom right: penalty of a confident mistake ============ -->
+  <rect x="615" y="620" width="555" height="305" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="635" y="650" font-size="17" font-weight="700" fill="#0f172a">How hard a confident mistake is punished</text>
+  <line x1="665" y1="830" x2="1135" y2="830" stroke="#94a3b8"/>
+  <line x1="665" y1="672" x2="665" y2="830" stroke="#94a3b8"/>
+  <g font-size="12" fill="#64748b" text-anchor="middle">
+    <text x="665" y="848">0</text><text x="900" y="848">0.5</text><text x="1135" y="848">1</text>
+    <text x="900" y="868">probability the model gave the true answer</text>
+  </g>
+  <text x="650" y="752" font-size="12" fill="#64748b" text-anchor="middle" transform="rotate(-90 650 752)">penalty</text>
+  <polyline fill="none" stroke="#2563eb" stroke-width="3" points="669.7,691.9 674.4,712.6 688.5,740.1 712,760.9 759,781.7 806,793.9 900,809.2 994,819.3 1088,826.8 1135,830"/>
+  <polyline fill="none" stroke="#ea580c" stroke-width="3" points="669.7,771.2 674.4,772.4 688.5,775.9 712,781.4 759,791.6 806,800.6 900,815 994,824.6 1088,829.4 1135,830"/>
+  <circle cx="669.7" cy="691.9" r="4" fill="#2563eb"/>
+  <circle cx="669.7" cy="771.2" r="4" fill="#ea580c"/>
+  <text x="682" y="690" font-size="12.5" font-weight="700" fill="#2563eb">4.6 at p = 0.01</text>
+  <text x="678" y="819" font-size="12.5" font-weight="700" fill="#ea580c">1.96, bounded</text>
+  <g font-size="13">
+    <line x1="920" y1="690" x2="948" y2="690" stroke="#2563eb" stroke-width="3"/>
+    <text x="956" y="694" fill="#0f172a">fine-tune: −log p</text>
+    <line x1="920" y1="714" x2="948" y2="714" stroke="#ea580c" stroke-width="3"/>
+    <text x="956" y="718" fill="#0f172a">a score RLCD can use: Brier</text>
+  </g>
+  <text x="635" y="894" font-size="12.5" fill="#64748b">Bounded scores pull less on noisy or ambiguous labels, so the model hedges</text>
+  <text x="635" y="912" font-size="12.5" fill="#64748b">instead of memorizing. With RLCD you choose the scores and their weights.</text>
+</svg>

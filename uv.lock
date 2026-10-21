@@ -2143,8 +2143,8 @@ wheels = [
 ]
 
 [[package]]
-name = "selfjev"
-version = "0.4.2"
+name = "selfjevai-sdk"
+version = "0.4.3"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -2195,7 +2195,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
-    { name = "selfjev", extra = ["deploy", "serve", "train"] },
+    { name = "selfjevai-sdk", extra = ["deploy", "serve", "train"] },
     { name = "typesafe-sdk" },
 ]
 
@@ -2234,7 +2234,7 @@ dev = [
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "ruff", specifier = "==0.16.9" },
-    { name = "selfjev", extras = ["serve", "train", "deploy"] },
+    { name = "selfjevai-sdk", extras = ["serve", "train", "deploy"] },
     { name = "typesafe-sdk", specifier = ">=0.7.2" },
 ]
 

@@ -1,0 +1,64 @@
+name: release
+
+# Push a tag `v<version>` matching pyproject.toml to publish to PyPI (trusted publishing: no token; the pending
+# publisher for `selfjevai-sdk` is registered on pypi.org). Run it by hand for a dry run: build and smoke test, no upload.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6  # no LFS: the package ships no weights
+      - uses: astral-sh/setup-uv@v7
+      - name: Tag matches the package version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(uv version --short)
+          [ "${GITHUB_REF_NAME}" = "v${version}" ] || { echo "tag ${GITHUB_REF_NAME} != v${version}"; exit 1; }
+      - run: uv build
+      - name: The SDK installs and imports without torch; the CLI starts
+        run: |
+          uv venv /tmp/smoke -p 3.12
+          uv pip install -p /tmp/smoke/bin/python dist/*.whl
+          /tmp/smoke/bin/python -c "import sys, selfjev; print(selfjev.__version__); assert 'torch' not in sys.modules"
+          /tmp/smoke/bin/selfjev --help > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/selfjevai-sdk
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

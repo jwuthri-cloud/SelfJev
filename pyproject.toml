@@ -1,9 +1,9 @@
 [project]
-name = "selfjev"
-version = "0.4.2"
+name = "selfjevai-sdk"
+version = "0.4.3"
 description = "selfjev: an open decisions model (selfjev-4b) with Jev's API. SDK, server, fine-tuning and RLCD."
 authors = [
-    { name = "julien-connectly", email = "julien@connectly.ai" }
+    { name = "Jwuthri" }
 ]
 readme = "README.pypi.md"
 license = "Apache-2.0"
@@ -21,21 +21,22 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
 ]
-dependencies = [  # the SDK: `pip install selfjev`
+dependencies = [  # the SDK: `pip install selfjevai-sdk`
     "httpx>=0.28",
     "pydantic>=2.10",
 ]
 
 [project.urls]
-Homepage = "https://github.com/Jwuthri/SelfJev"
-Documentation = "https://github.com/Jwuthri/SelfJev/blob/master/docs/api.md"
-Source = "https://github.com/Jwuthri/SelfJev"
-Issues = "https://github.com/Jwuthri/SelfJev/issues"
+Homepage = "https://github.com/jwuthri-cloud/SelfJev"
+Documentation = "https://github.com/jwuthri-cloud/SelfJev/blob/master/docs/api.md"
+Source = "https://github.com/jwuthri-cloud/SelfJev"
+Issues = "https://github.com/jwuthri-cloud/SelfJev/issues"
 Model = "https://huggingface.co/Jwuthrich/selfjev-4b-vision"
-Research = "https://jwuthri.github.io/SelfJev/"
+Website = "https://www.selfjev.dev/"
+Research = "https://www.selfjev.dev/research/"
 
 [project.optional-dependencies]
-serve = [  # `pip install selfjev[serve]`: the engine and the HTTP server (a CUDA GPU for real use)
+serve = [  # `pip install selfjevai-sdk[serve]`: the engine and the HTTP server (a CUDA GPU for real use)
     "fastapi>=0.115",
     "peft>=0.21.0",
     "python-multipart>=0.0.20",  # file uploads (fine-tuning)
@@ -46,19 +47,19 @@ serve = [  # `pip install selfjev[serve]`: the engine and the HTTP server (a CUD
     "uvicorn[standard]>=0.32",
     "pillow>=11",
 ]
-ollama = [  # `pip install selfjev[ollama]`: the server on top of Ollama (selfjev serve --engine ollama): no torch
+ollama = [  # `pip install selfjevai-sdk[ollama]`: the server on top of Ollama (selfjev serve --engine ollama): no torch
     "fastapi>=0.115",
     "python-multipart>=0.0.20",
     "uvicorn[standard]>=0.32",
 ]
-train = [  # `pip install selfjev[train]`: finetune and RLCD
+train = [  # `pip install selfjevai-sdk[train]`: finetune and RLCD
     "peft>=0.21.0",
     "pillow>=11",
     "safetensors>=0.8.0",
     "torch>=2.14.0",
     "transformers>=5.17.0",
 ]
-quant = [  # `pip install selfjev[serve,quant]`: --quantize 8bit|4bit, for GPUs under 16 GB
+quant = [  # `pip install selfjevai-sdk[serve,quant]`: --quantize 8bit|4bit, for GPUs under 16 GB
     "bitsandbytes>=0.45; sys_platform == 'linux'",
     "accelerate>=1.0",
 ]
@@ -74,12 +75,15 @@ gpu = [  # fast Gated DeltaNet kernels on Linux CUDA boxes (the engine falls bac
 requires = ["uv_build>=0.11.13,<0.12.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = "selfjev"  # the import name; the distribution is selfjevai-sdk
+
 [dependency-groups]
 data = [
     "datasets>=5.0.1",
 ]
 dev = [
-    "selfjev[serve,train,deploy]",  # deploy too: a plain `uv run` must not uninstall boto3 under a running deploy
+    "selfjevai-sdk[serve,train,deploy]",  # deploy too: a plain `uv run` must not uninstall boto3 under a running deploy
     "pre-commit>=4.3.0",
     "pytest>=9.1.1",
     "typesafe-sdk>=0.7.2",  # tests/server/test_typesafe_sdk.py: TypeSafe's own client against our server

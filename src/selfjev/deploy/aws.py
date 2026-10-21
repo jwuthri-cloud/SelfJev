@@ -1,4 +1,4 @@
-"""One-command AWS deployment of a selfjev server (needs `pip install selfjev[deploy]` and AWS credentials).
+"""One-command AWS deployment of a selfjev server (needs `pip install selfjevai-sdk[deploy]` and AWS credentials).
 
   selfjev deploy aws up --name prod --instance g6.xlarge --region us-east-2     # prints the endpoint and the API key
   selfjev deploy aws status --name prod
@@ -17,7 +17,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-REPO = "https://github.com/Jwuthri/SelfJev.git"
+REPO = "https://github.com/jwuthri-cloud/SelfJev.git"
 BASE_MODEL = ("Qwen/Qwen3.5-4B", "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a")
 AMI_PARAMETER = "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id"
 STATE = Path.home() / ".selfjev" / "deployments"

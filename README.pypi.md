@@ -13,24 +13,24 @@
 
 ## 1. Run your server
 
-On a Linux machine with an NVIDIA GPU (24 GB is a practical start; see the [hardware guide](https://github.com/Jwuthri/SelfJev/blob/master/website/content/hardware.md)):
+On a Linux machine with an NVIDIA GPU (24 GB is a practical start; see the [hardware guide](https://www.selfjev.dev/docs/hardware/)):
 
 ```bash
-pip install "selfjev[serve,gpu]"
+pip install "selfjevai-sdk[serve,gpu]"
 export SELFJEV_API_KEYS="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"   # your key, you choose it
 selfjev serve --host 0.0.0.0 --port 8000
 ```
 
-The first start downloads the [selfjev-4b vision adapter](https://huggingface.co/Jwuthrich/selfjev-4b-vision) (230 MB; text and images) and its Qwen3.5-4B base from Hugging Face. `--adapter <dir or repo>` serves your own fine-tune. Docker, AWS, Runpod and GCP recipes are in the [deployment guide](https://github.com/Jwuthri/SelfJev/blob/master/docs/deploy.md).
+The first start downloads the [selfjev-4b vision adapter](https://huggingface.co/Jwuthrich/selfjev-4b-vision) (230 MB; text and images) and its Qwen3.5-4B base from Hugging Face. `--adapter <dir or repo>` serves your own fine-tune. Docker, AWS, Runpod and GCP recipes are in the [deployment guide](https://github.com/jwuthri-cloud/SelfJev/blob/master/docs/deploy.md).
 
 | Extra | For |
 |---|---|
 | `selfjev` | the client only: httpx + pydantic, no torch |
-| `selfjev[serve]` | the model server (add `gpu` on Linux for the fast kernels) |
-| `selfjev[serve,quant]` | `--quantize 4bit` / `--quantized-model` for an 8 GB GPU |
-| `selfjev[ollama]` | `selfjev serve --engine ollama` on the GGUF release, no torch |
-| `selfjev[train]` | `selfjev finetune` and `selfjev rlcd` |
-| `selfjev[deploy]` | `selfjev deploy aws` |
+| `selfjevai-sdk[serve]` | the model server (add `gpu` on Linux for the fast kernels) |
+| `selfjevai-sdk[serve,quant]` | `--quantize 4bit` / `--quantized-model` for an 8 GB GPU |
+| `selfjevai-sdk[ollama]` | `selfjev serve --engine ollama` on the GGUF release, no torch |
+| `selfjevai-sdk[train]` | `selfjev finetune` and `selfjev rlcd` |
+| `selfjevai-sdk[deploy]` | `selfjev deploy aws` |
 
 ## 2a. Already using Jev? Change two variables
 
@@ -58,7 +58,7 @@ The default model name `jev-latest` is answered by selfjev-4b, and `client.model
 
 ## 2b. Or use the selfjev client
 
-`pip install selfjev` in your application. It adds `Multi` (select all that apply) and the fine-tuning API.
+`pip install selfjevai-sdk` in your application. It adds `Multi` (select all that apply) and the fine-tuning API.
 
 ```python
 from selfjev import Choice, Multi, Noul, SelfJev
@@ -121,12 +121,12 @@ SelfJev-4B Vision (the default since 0.3.0) served by TreeServer, compared with 
 | Broader text tasks (development benchmark) | 3,471 | **84.1%** | 82.7% |
 | Images (10 datasets, 4 never trained on) | 2,002 | **90.4%** | no image input |
 
-These are project evaluations, not a universal ranking. See the [results and limitations](https://github.com/Jwuthri/SelfJev/blob/master/docs/experiments.md) and the [Decision Bench](https://huggingface.co/datasets/Jwuthrich/selfjev-decision-bench) evaluation set.
+These are project evaluations, not a universal ranking. See the [results and limitations](https://www.selfjev.dev/research/) and the [Decision Bench](https://huggingface.co/datasets/Jwuthrich/selfjev-decision-bench) evaluation set.
 
 ## Links
 
-- [API reference](https://github.com/Jwuthri/SelfJev/blob/master/docs/api.md) · [Fine-tuning](https://github.com/Jwuthri/SelfJev/blob/master/docs/finetune.md) · [Deployment](https://github.com/Jwuthri/SelfJev/blob/master/docs/deploy.md)
+- [API reference](https://github.com/jwuthri-cloud/SelfJev/blob/master/docs/api.md) · [Fine-tuning](https://github.com/jwuthri-cloud/SelfJev/blob/master/docs/finetune.md) · [Deployment](https://github.com/jwuthri-cloud/SelfJev/blob/master/docs/deploy.md)
 - [Model: selfjev-4b vision](https://huggingface.co/Jwuthrich/selfjev-4b-vision) · [text-only](https://huggingface.co/Jwuthrich/selfjev-4b) · [merged weights (text-only)](https://huggingface.co/Jwuthrich/selfjev-4b-merged)
-- [Source](https://github.com/Jwuthri/SelfJev) · [Research notebook](https://jwuthri.github.io/SelfJev/)
+- [Source](https://github.com/jwuthri-cloud/SelfJev) · [Research notebook](https://www.selfjev.dev/research/)
 
 The package code is Apache-2.0. The model weights carry their own licenses; see each model card.

@@ -29,7 +29,7 @@ def test_a_missing_default_adapter_downloads_the_published_one(monkeypatch, tmp_
     got = []
     hub = types.SimpleNamespace(snapshot_download=lambda repo, allow_patterns: got.append((repo, allow_patterns)) or str(tmp_path))
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
-    monkeypatch.chdir(tmp_path)  # no weights/ here, as after `pip install selfjev[serve]`
+    monkeypatch.chdir(tmp_path)  # no weights/ here, as after `pip install selfjevai-sdk[serve]`
     assert cli._adapter(cli.DEFAULT_ADAPTER) == str(tmp_path)
     assert got == [(cli.HUB_ADAPTER, cli.ADAPTER_FILES)]
     (tmp_path / "mine").mkdir()
@@ -50,6 +50,6 @@ def test_a_missing_extra_names_the_pip_install(monkeypatch):
     try:
         cli.main(["classify", "examples/request.json", "--adapter", "examples"])
     except SystemExit as e:
-        assert "pip install 'selfjev[serve]'" in str(e)
+        assert "pip install 'selfjevai-sdk[serve]'" in str(e)
     else:
         raise AssertionError("expected SystemExit")

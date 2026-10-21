@@ -19,7 +19,7 @@ metadata. No new head is trained: the LoRA adapter teaches the model's own yes/n
 The Qwen3 models before it (archived at tag `archive/pre-cleanup-2026-09-27`) read the same logit through the
 Qwen3-Reranker model card's template (`<Instruct>`, `<Query>` and `<Document>` slots filled by named prompt mappings
 chosen on validation; "yes" and "no" are tokens 9693 and 2152), and a test matched the card's reference code to 1e-4.
-Their **stock** backend scored one sequence per (text, question, candidate) pair ([stock model](stock_model.md)).
+Their **stock** backend scored one sequence per (text, question, candidate) pair ([stock model](https://www.selfjev.dev/research/)).
 
 ## The shared-prefix tree: read the text once
 
@@ -38,7 +38,7 @@ passes over the text. The tree puts the text first and branches every question a
 - `selfjev finetune` trains on the packed tree; `TreeServer` (`selfjev/engine/tree.py`, the default engine of
   `selfjev serve`) runs the same tree forward only, one tree per request. The vLLM engine instead sends one prompt per
   candidate and shares the text through vLLM's prefix cache.
-- Details and results: [shared-prefix tree](tree_model.md).
+- Details and results: [shared-prefix tree](https://www.selfjev.dev/docs/architecture/).
 
 ## Every option in the question
 
@@ -64,7 +64,7 @@ tiny model, and on the real model: scores within 0.004, gradient cosine 0.99997 
 text once per state, so texts up to 8K tokens fit where full-sequence training had to stop at 2K; that alone was worth
 +1.1 on eval2 (`qwen35_4b_tree`), and `selfjev-4b` trains on texts up to 16K. Serving: `TreeServer`
 (`selfjev.engine.tree`: the same tree, forward only; not timed on a GPU yet) or vLLM (`selfjev.engine.vllm`), which is
-exact but slow with many questions ([speed](speed.md#qwen35-on-vllm-2026-09-25-l40s)). The Qwen3.5 reports so far,
+exact but slow with many questions ([speed](https://www.selfjev.dev/research/)). The Qwen3.5 reports so far,
 `selfjev-4b`'s included, were scored by a forked-cache engine (the text encoded once, its cache copied for each
 branch; the vLLM check aside), now at the tag.
 
@@ -79,7 +79,7 @@ branch; the vLLM check aside), now at the tag.
 `T = 1` and the status is `uncalibrated` unless a calibration file fitted on the held-out calibration split supplies a
 temperature (`heldout_temperature_scaled`). A multiclass argmax always picks something: add an explicit "none of the
 above" candidate or set `abstain_below`. For the tree models, serve with the default thresholds: the fitted ones cost
-accuracy ([findings](findings.md#distillation-and-calibration)).
+accuracy ([findings](https://www.selfjev.dev/research/)).
 
 ## Request and response
 

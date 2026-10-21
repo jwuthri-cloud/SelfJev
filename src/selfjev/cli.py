@@ -161,7 +161,7 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     p = sub.add_parser("deploy", help="deploy a server: `selfjev deploy aws up|down|status|list|machines`")
     dsub = p.add_subparsers(dest="provider", required=True)
-    aws = dsub.add_parser("aws", help="an EC2 GPU box running `selfjev serve` (pip install selfjev[deploy])")
+    aws = dsub.add_parser("aws", help="an EC2 GPU box running `selfjev serve` (pip install selfjevai-sdk[deploy])")
     aws.add_argument("action", choices=["up", "down", "status", "list", "machines"])
     aws.add_argument("--name", default="selfjev", help="deployment name (tags, state file)")
     aws.add_argument("--instance", default="g6.xlarge", help="EC2 type; see `selfjev deploy aws machines`")
@@ -189,7 +189,7 @@ def main(argv=None):
         extra = "train" if a.cmd in ("finetune", "rlcd") else EXTRAS.get(root)
         if not extra:
             raise
-        raise SystemExit(f"selfjev {a.cmd} needs the {extra} extra ({root} is missing): pip install 'selfjev[{extra}]'") from e
+        raise SystemExit(f"selfjev {a.cmd} needs the {extra} extra ({root} is missing): pip install 'selfjevai-sdk[{extra}]'") from e
 
 
 def _run(a):

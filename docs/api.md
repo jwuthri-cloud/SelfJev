@@ -66,7 +66,7 @@ in `~/.selfjev/deployments/<name>.json`.
   text. Default engine and `--engine ollama` ([ollama.md](ollama.md)), not `--engine vllm`. The SDK turns a `Path`, image bytes or a PIL image in `state` into a
   data URL: `client.system_one(state=[Path("cat.jpg")], questions={"breed": Choice("What breed is it?", {...})})`.
   The default adapter (`weights/selfjev_4b_vision`, [Jwuthrich/selfjev-4b-vision](https://huggingface.co/Jwuthrich/selfjev-4b-vision))
-  was fine-tuned on images of 6 kinds; accuracy is in [experiments.md](experiments.md) (conclusion 16).
+  was fine-tuned on images of 6 kinds; accuracy is in [experiments.md](https://www.selfjev.dev/research/) (conclusion 16).
 - `questions`: up to 64, keyed by your ids. Each is answered in isolation against the same state; the state is read once.
 
 | type | criteria | answers |
@@ -138,7 +138,7 @@ and names the first bad one (`param: "file.line_12"`). `GET /v1/files`, `GET` an
 
 **Images:** `state` may be an image data URL or a list of text and image parts, exactly as in a request; the vision tower
 stays frozen and the language LoRA learns from it. Files hold the images inline (base64), limit 512 MB per file (about
-4,000 photos at 512 px). Ready-made rows from Hugging Face datasets: [image datasets](image_datasets.md).
+4,000 photos at 512 px). Ready-made rows from Hugging Face datasets: [image datasets](https://www.selfjev.dev/research/).
 
 **Job:**
 

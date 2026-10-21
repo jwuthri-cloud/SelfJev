@@ -17,7 +17,7 @@ uv run selfjev serve --adapter runs/mine_rlcd/adapter
 
 The tree server scores exactly like standalone sequences (CPU test on a tiny model) but has not been timed on a GPU yet.
 The vLLM path (`selfjev merge`, then `selfjev serve --engine vllm`) is the one measured on the real model (with
-`qwen35_4b_tree`): same accuracy, fast for one question, slow for many ([speed](speed.md)). Over HTTP,
+`qwen35_4b_tree`): same accuracy, fast for one question, slow for many ([speed](https://www.selfjev.dev/research/)). Over HTTP,
 `selfjev serve --fine-tuning` runs the same two commands as jobs and serves the result next to `selfjev-4b`
 ([API](api.md#fine-tuning)).
 
@@ -29,7 +29,7 @@ Code: [src/selfjev/training/](../src/selfjev/training/finetune.py) (`finetune.py
 Satellite photos of hurricane damage, a task the release gets 61% right zero-shot. 150 labelled photos per class
 (`scripts/data/hurricane_photos.py`, none from the frozen test) went through the user flow of [the API](api.md#fine-tuning):
 a folder of photos -> `upload_file(rows)` -> a job -> `wait_fine_tuning_job` (`scripts/eval/image_finetune_demo.py`),
-on one L40S. The fine-tuned models were then scored on the frozen image test and on eval2 ([table](../reports/hurricane_demo/README.md)):
+on one L40S. The fine-tuned models were then scored on the frozen image test and on eval2 ([table](https://www.selfjev.dev/research/)):
 
 | | release | 1 epoch (2 steps, 1.8 min) | 5 epochs (10 steps, 2.8 min) |
 |---|---|---|---|
@@ -159,7 +159,7 @@ One question per line, the same format as every eval file in `data/`:
 data sha256, settings, every validation). Validation reports accuracy, cross-entropy, Brier score, expected calibration
 error (10 bins) and the number of confidently wrong decisions (confidence ≥ 0.9). `finetune` keeps the checkpoint with
 the lowest validation cross-entropy, `rlcd` the one with the lowest Brier score. To keep a result with the repo, copy
-the adapter into [weights/](../weights/README.md).
+the adapter into [weights/](https://huggingface.co/Jwuthrich/selfjev-4b-vision).
 
 ## finetune
 
@@ -189,12 +189,12 @@ answer is "yes" 70% of the time, the model learns to say 70% (binary), and 60% f
 60/30/10 split.
 
 Jev says it is trained with "RLCD" and gives no details; Laya, an open Jev-like engine, uses the name for policy
-gradient on proper-scoring-rule rewards ([landscape](landscape.md)), which is what `selfjev rlcd` implements.
+gradient on proper-scoring-rule rewards ([landscape](https://www.selfjev.dev/research/)), which is what `selfjev rlcd` implements.
 
 ## First test on the real model (2026-09-25): no gain
 
 RLCD from `qwen35_4b_tree` (then the default) on 4,412 labeled questions it never trained on, against a plain fine-tune on the
-same questions ([JOURNAL](JOURNAL.md), `reports/rlcd_2026-09-25/`):
+same questions ([JOURNAL](https://www.selfjev.dev/research/), `reports/rlcd_2026-09-25/`):
 
 | eval2 | accuracy | ECE | confidently wrong (≥ 0.9) |
 |---|---|---|---|
@@ -216,7 +216,7 @@ same questions ([JOURNAL](JOURNAL.md), `reports/rlcd_2026-09-25/`):
 
 From `qwen35_4b_tree`, one epoch over 69,528 non-test questions of `data/all.jsonl.gz`, target 0.5 × label +
 0.5 × Jev (Jev is ≥ 0.9 sure of the label on 77% of them, hedges on 15%, disagrees on 8%). Final checkpoints
-([JOURNAL](JOURNAL.md), `reports/rlcd_jev_2026-09-26/`):
+([JOURNAL](https://www.selfjev.dev/research/), `reports/rlcd_jev_2026-09-26/`):
 
 | eval2 (1,991 q) | accuracy (paired vs start) | Brier | ECE | wrong decisions | ≥ 0.9 sure | mean confidence when wrong |
 |---|---|---|---|---|---|---|

@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 995" width="1200" height="995" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <rect width="1200" height="995" fill="#ffffff"/>
+  <text x="600" y="40" text-anchor="middle" font-size="23" font-weight="700" fill="#0f172a">One training step of each, on the same question</text>
+  <text x="600" y="64" text-anchor="middle" font-size="14" fill="#64748b">Same model, same LoRA weights, same backpropagation. Only the signal that says which way to move is different.</text>
+
+  <!-- column headers -->
+  <rect x="377" y="78" width="150" height="28" rx="14" fill="#2563eb"/>
+  <text x="452" y="97" text-anchor="middle" font-size="14.5" font-weight="700" fill="#ffffff">Fine-tune</text>
+  <rect x="877" y="78" width="130" height="28" rx="14" fill="#ea580c"/>
+  <text x="942" y="97" text-anchor="middle" font-size="14.5" font-weight="700" fill="#ffffff">RLCD</text>
+
+  <!-- step labels -->
+  <g font-size="14.5" font-weight="700" fill="#0f172a">
+    <circle cx="36" cy="162" r="13" fill="#0f172a"/><text x="36" y="167" text-anchor="middle" fill="#ffffff" font-size="13">1</text><text x="58" y="160">The data</text>
+    <circle cx="36" cy="274" r="13" fill="#0f172a"/><text x="36" y="279" text-anchor="middle" fill="#ffffff" font-size="13">2</text><text x="58" y="272">Forward pass</text>
+    <circle cx="36" cy="386" r="13" fill="#0f172a"/><text x="36" y="391" text-anchor="middle" fill="#ffffff" font-size="13">3</text><text x="58" y="384">The signal</text>
+    <circle cx="36" cy="531" r="13" fill="#0f172a"/><text x="36" y="536" text-anchor="middle" fill="#ffffff" font-size="13">4</text><text x="58" y="529">The push</text>
+    <circle cx="36" cy="648" r="13" fill="#0f172a"/><text x="36" y="653" text-anchor="middle" fill="#ffffff" font-size="13">5</text><text x="58" y="646">The update</text>
+    <circle cx="36" cy="754" r="13" fill="#0f172a"/><text x="36" y="759" text-anchor="middle" fill="#ffffff" font-size="13">6</text><text x="58" y="752">After many steps</text>
+  </g>
+  <g font-size="12" fill="#64748b">
+    <text x="58" y="178">what each needs</text>
+    <text x="58" y="290">identical</text>
+    <text x="58" y="402">how good was it?</text>
+    <text x="58" y="547">which way to move</text>
+    <text x="58" y="664">identical</text>
+    <text x="58" y="770">what it learned</text>
+  </g>
+
+  <!-- 1 data -->
+  <rect x="215" y="112" width="475" height="114" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <g font-size="13.5" fill="#0f172a">
+    <g font-family="Menlo, monospace" font-size="12" fill="#64748b">
+      <text x="231" y="138">text</text><text x="231" y="160">question</text><text x="231" y="182">options</text><text x="231" y="208">target</text>
+    </g>
+    <text x="311" y="138">Ticket 4411: I was charged twice for March…</text>
+    <text x="311" y="160">Which team should handle this?</text>
+    <text x="311" y="182">billing · tech</text>
+    <rect x="305" y="192" width="62" height="22" rx="6" fill="#dbeafe"/>
+    <text x="311" y="208" fill="#1d4ed8" font-weight="700">billing</text>
+    <text x="378" y="208" fill="#64748b">that is all it needs</text>
+  </g>
+  <rect x="705" y="112" width="475" height="114" rx="10" fill="#fffaf5" stroke="#fdba74"/>
+  <g font-size="13.5" fill="#0f172a">
+    <text x="721" y="138">the same rows: text · question · options · target billing</text>
+    <text x="721" y="162"><tspan font-weight="700" fill="#c2410c">+</tspan> the starting model's own probabilities for each row</text>
+    <text x="737" y="181" font-size="12.5" fill="#64748b">computed once before training: the anchor</text>
+    <rect x="733" y="191" width="296" height="22" rx="6" fill="#ffedd5"/>
+    <text x="721" y="207"><tspan font-weight="700" fill="#c2410c">+</tspan> <tspan fill="#c2410c" font-weight="700">a reward: log + Brier + spherical score</tspan></text>
+  </g>
+
+  <!-- 2 forward (shared) -->
+  <rect x="215" y="238" width="965" height="72" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text x="231" y="265" font-size="14" fill="#0f172a">Qwen3.5-4B + LoRA reads the text once (shared-prefix tree) and gives each option a score:</text>
+  <text x="231" y="292" font-size="14" font-family="Menlo, monospace" fill="#0f172a">billing 0.49 · tech 0.00   →   probabilities   billing 62% · tech 38%</text>
+
+  <!-- 3 signal -->
+  <rect x="215" y="322" width="475" height="128" rx="10" fill="#f8fafc" stroke="#93c5fd"/>
+  <text x="231" y="350" font-size="14" fill="#0f172a">Compare with the target:</text>
+  <text x="231" y="380" font-size="14.5" font-family="Menlo, monospace" font-weight="700" fill="#1e3a8a">loss = −log 0.62 = 0.48</text>
+  <text x="231" y="410" font-size="13" fill="#64748b">The loss is near 0 when p(billing) is near 100%</text>
+  <text x="231" y="430" font-size="13" fill="#64748b">and grows fast as p(billing) falls toward 0.</text>
+
+  <rect x="705" y="322" width="475" height="128" rx="10" fill="#fffaf5" stroke="#fdba74"/>
+  <text x="721" y="346" font-size="13.5" fill="#0f172a">Try 8 answers near its own (a little noise on the scores),</text>
+  <text x="721" y="364" font-size="13.5" fill="#0f172a">then grade each one with the reward (5 shown):</text>
+  <g font-size="13.5" text-anchor="middle">
+    <rect x="718" y="374" width="80" height="26" rx="7" fill="#f1f5f9"/><text x="758" y="392" fill="#0f172a">p 0.48</text>
+    <rect x="810" y="374" width="80" height="26" rx="7" fill="#f1f5f9"/><text x="850" y="392" fill="#0f172a">p 0.55</text>
+    <rect x="902" y="374" width="80" height="26" rx="7" fill="#f1f5f9"/><text x="942" y="392" fill="#0f172a">p 0.62</text>
+    <rect x="994" y="374" width="80" height="26" rx="7" fill="#f1f5f9"/><text x="1034" y="392" fill="#0f172a">p 0.70</text>
+    <rect x="1086" y="374" width="80" height="26" rx="7" fill="#f1f5f9"/><text x="1126" y="392" fill="#0f172a">p 0.78</text>
+    <text x="758" y="419" fill="#dc2626" font-weight="700">−0.60</text>
+    <text x="850" y="419" fill="#dc2626" font-weight="700">−0.23</text>
+    <text x="942" y="419" fill="#16a34a" font-weight="700">+0.09</text>
+    <text x="1034" y="419" fill="#16a34a" font-weight="700">+0.38</text>
+    <text x="1126" y="419" fill="#16a34a" font-weight="700">+0.62</text>
+  </g>
+  <text x="942" y="441" text-anchor="middle" font-size="12.5" fill="#64748b">reward of each try · average +0.05</text>
+
+  <!-- 4 push -->
+  <rect x="215" y="462" width="475" height="138" rx="10" fill="#f8fafc" stroke="#93c5fd"/>
+  <text x="231" y="489" font-size="14" fill="#0f172a">Push on each score = how far it is from the target:</text>
+  <g font-size="13.5" font-family="Menlo, monospace" fill="#0f172a">
+    <text x="231" y="517">billing  0.62 − 1 = −0.38  → raise by 0.38</text>
+    <text x="231" y="541">tech     0.38 − 0 = +0.38  → lower by 0.38</text>
+  </g>
+  <text x="231" y="570" font-size="13" fill="#64748b">The push is exactly how wrong it was: big when</text>
+  <text x="231" y="588" font-size="13" fill="#64748b">far from the target, almost nothing when close.</text>
+
+  <rect x="705" y="462" width="475" height="138" rx="10" fill="#fffaf5" stroke="#fdba74"/>
+  <text x="721" y="486" font-size="13.5" fill="#0f172a">advantage = the try's reward − the average:</text>
+  <g font-size="13.5" text-anchor="middle" font-weight="700">
+    <text x="758" y="510" fill="#dc2626">−0.65</text><text x="850" y="510" fill="#dc2626">−0.28</text>
+    <text x="942" y="510" fill="#16a34a">+0.03</text><text x="1034" y="510" fill="#16a34a">+0.33</text><text x="1126" y="510" fill="#16a34a">+0.57</text>
+  </g>
+  <text x="721" y="536" font-size="13.5" fill="#0f172a">Move toward the tries marked + (more billing), away from</text>
+  <text x="721" y="555" font-size="13.5" fill="#0f172a">those marked −: billing up, tech down.</text>
+  <text x="721" y="580" font-size="13" fill="#64748b">Plus the anchor: if it drifts from the starting model,</text>
+  <text x="721" y="596" font-size="13" fill="#64748b">a small pull brings it back (KL penalty, 0.05).</text>
+
+  <!-- 5 update (shared) -->
+  <rect x="215" y="612" width="965" height="72" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text x="231" y="640" font-size="14" fill="#0f172a">The push flows back through all 32 layers (backpropagation). Only the LoRA matrices change: 57.5M numbers,</text>
+  <text x="231" y="664" font-size="14" fill="#0f172a">1.4% of the model; the 4B base stays frozen. Step size: learning rate 2e-4 (fine-tune), 5e-5 (RLCD).</text>
+
+  <!-- 6 after many steps -->
+  <rect x="215" y="696" width="475" height="116" rx="10" fill="#eff6ff"/>
+  <text x="231" y="724" font-size="14.5" font-weight="700" fill="#1e3a8a">Says the right answer more strongly</text>
+  <text x="231" y="746" font-size="14" fill="#1e3a8a">for texts like this one.</text>
+  <text x="231" y="774" font-size="13" fill="#64748b">A confident mistake gets the hardest push: 0.95 when</text>
+  <text x="231" y="793" font-size="13" fill="#64748b">p(target) = 0.05, even when that label is noise.</text>
+
+  <rect x="705" y="696" width="475" height="116" rx="10" fill="#fff7ed"/>
+  <text x="721" y="724" font-size="14.5" font-weight="700" fill="#7c2d12">Says each answer as often as it is right</text>
+  <text x="721" y="746" font-size="14" fill="#7c2d12">(70% sure means right 70% of the time).</text>
+  <text x="721" y="774" font-size="13" fill="#64748b">The reward sets how hard a confident mistake is pushed:</text>
+  <text x="721" y="793" font-size="13" fill="#64748b">log 0.95 · Brier 0.18 · spherical 0.05 at p(target) = 0.05.</text>
+
+  <!-- bottom: what is a reward -->
+  <rect x="20" y="828" width="1160" height="152" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="40" y="857" font-size="16.5" font-weight="700" fill="#0f172a">What is a reward, and how does it change the model?</text>
+  <g font-size="13.5" fill="#334155">
+    <text x="40" y="884">• A reward is a grade for one attempt: a single number, higher is better.</text>
+    <text x="40" y="907">• In RLCD the model never copies the target: it tries a few answers, sees which ones scored better, and leans toward them.</text>
+    <text x="40" y="930">• The lean works like fine-tuning (backpropagation into the same LoRA weights); only its direction comes from the grades.</text>
+    <text x="40" y="953">• Here the grade uses the target, but anything that can grade an attempt works: a cost table, a judge, what happened next.</text>
+  </g>
+</svg>
