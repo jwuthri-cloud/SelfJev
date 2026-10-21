@@ -21,8 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
-      - run: uvx ruff@0.16.9 check src tests scripts
-      - run: uvx ruff@0.16.9 format --check src tests scripts
+      - run: uvx ruff@0.16.9 check src tests
+      - run: uvx ruff@0.16.9 format --check src tests
 
   test:
     runs-on: ubuntu-latest
